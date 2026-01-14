@@ -71,7 +71,7 @@ defmodule Absinthe.Object.ExtensionTest do
       field :name, :string
 
       # Use custom macro from extension
-      custom_field :dynamic_field
+      custom_field(:dynamic_field)
     end
   end
 

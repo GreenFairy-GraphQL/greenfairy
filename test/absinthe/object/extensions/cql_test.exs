@@ -236,7 +236,8 @@ defmodule Absinthe.Object.Extensions.CQLTest do
         field :name, :string
         field :email, :string
         field :age, :integer
-        field :full_name, :string  # Not in Ecto schema
+        # Not in Ecto schema
+        field :full_name, :string
       end
     end
 
@@ -326,15 +327,16 @@ defmodule Absinthe.Object.Extensions.CQLTest do
 
         field :id, non_null(:id)
         field :name, :string
-        field :full_name, :string  # Computed field
+        # Computed field
+        field :full_name, :string
 
         # Custom filter for computed field
-        custom_filter :full_name, [:eq, :contains], fn query, op, value ->
+        custom_filter(:full_name, [:eq, :contains], fn query, op, value ->
           case op do
             :eq -> {:custom_eq, query, value}
             :contains -> {:custom_contains, query, value}
           end
-        end
+        end)
       end
     end
 
@@ -376,7 +378,7 @@ defmodule Absinthe.Object.Extensions.CQLTest do
         field :computed_score, :integer
 
         # Use :integer shorthand to get all integer operators
-        custom_filter :computed_score, :integer, fn query, _op, _value -> query end
+        custom_filter(:computed_score, :integer, fn query, _op, _value -> query end)
       end
     end
 
@@ -406,13 +408,13 @@ defmodule Absinthe.Object.Extensions.CQLTest do
         use CQL
 
         # Authorization based on context
-        authorize fn _user, ctx ->
+        authorize(fn _user, ctx ->
           cond do
             ctx[:role] == :admin -> :all
             ctx[:role] == :hr -> [:id, :name, :email, :salary]
             true -> [:id, :name]
           end
-        end
+        end)
 
         field :id, non_null(:id)
         field :name, :string
@@ -421,11 +423,11 @@ defmodule Absinthe.Object.Extensions.CQLTest do
         field :salary, :integer
 
         # Custom filters for all fields
-        custom_filter :id, [:eq, :in], fn q, _, _ -> q end
-        custom_filter :name, [:eq, :contains], fn q, _, _ -> q end
-        custom_filter :email, [:eq, :contains], fn q, _, _ -> q end
-        custom_filter :ssn, [:eq], fn q, _, _ -> q end
-        custom_filter :salary, [:eq, :gt, :lt], fn q, _, _ -> q end
+        custom_filter(:id, [:eq, :in], fn q, _, _ -> q end)
+        custom_filter(:name, [:eq, :contains], fn q, _, _ -> q end)
+        custom_filter(:email, [:eq, :contains], fn q, _, _ -> q end)
+        custom_filter(:ssn, [:eq], fn q, _, _ -> q end)
+        custom_filter(:salary, [:eq, :gt, :lt], fn q, _, _ -> q end)
       end
     end
 

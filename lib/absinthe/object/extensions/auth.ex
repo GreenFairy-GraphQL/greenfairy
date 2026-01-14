@@ -84,6 +84,7 @@ defmodule Absinthe.Object.Extensions.Auth do
       import Absinthe.Object.Extensions.Auth.Macros
 
       Module.register_attribute(__MODULE__, :auth_extension_config, accumulate: false)
+
       @auth_extension_config %{
         capability_key: unquote(capability_key),
         user_key: unquote(user_key)

@@ -223,14 +223,16 @@ defmodule Absinthe.Object.Type do
 
     {edge_block, connection_fields} = Absinthe.Object.Field.Connection.parse_connection_block(block)
 
-    [%{
-      field_name: field_name,
-      type_identifier: type_identifier,
-      connection_name: connection_name,
-      edge_name: edge_name,
-      edge_block: edge_block,
-      connection_fields: connection_fields
-    }]
+    [
+      %{
+        field_name: field_name,
+        type_identifier: type_identifier,
+        connection_name: connection_name,
+        edge_name: edge_name,
+        edge_block: edge_block,
+        connection_fields: connection_fields
+      }
+    ]
   end
 
   defp extract_connection_from_statement(_, _env), do: []
@@ -238,26 +240,30 @@ defmodule Absinthe.Object.Type do
   defp parse_connection_args([field_name]), do: {field_name, [], nil}
   defp parse_connection_args([field_name, [do: block]]), do: {field_name, [], block}
   defp parse_connection_args([field_name, type_module_or_opts]), do: {field_name, type_module_or_opts, nil}
-  defp parse_connection_args([field_name, type_module_or_opts, [do: block]]), do: {field_name, type_module_or_opts, block}
+
+  defp parse_connection_args([field_name, type_module_or_opts, [do: block]]),
+    do: {field_name, type_module_or_opts, block}
 
   # Generate AST for connection types
   defp generate_connection_types_ast(connection_defs) do
     Enum.flat_map(connection_defs, fn conn ->
-      edge_type = quote do
-        Absinthe.Schema.Notation.object unquote(conn.edge_name) do
-          field :node, unquote(conn.type_identifier)
-          field :cursor, non_null(:string)
-          unquote(conn.edge_block)
+      edge_type =
+        quote do
+          Absinthe.Schema.Notation.object unquote(conn.edge_name) do
+            field :node, unquote(conn.type_identifier)
+            field :cursor, non_null(:string)
+            unquote(conn.edge_block)
+          end
         end
-      end
 
-      connection_type = quote do
-        Absinthe.Schema.Notation.object unquote(conn.connection_name) do
-          field :edges, list_of(unquote(conn.edge_name))
-          field :page_info, non_null(:page_info)
-          unquote(conn.connection_fields)
+      connection_type =
+        quote do
+          Absinthe.Schema.Notation.object unquote(conn.connection_name) do
+            field :edges, list_of(unquote(conn.edge_name))
+            field :page_info, non_null(:page_info)
+            unquote(conn.connection_fields)
+          end
         end
-      end
 
       [edge_type, connection_type]
     end)

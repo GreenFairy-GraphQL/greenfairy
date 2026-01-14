@@ -25,7 +25,7 @@ defmodule Absinthe.Object.DeferredTest do
       field :id, {:non_null, :id}
       field :name, :string
 
-      implements TestInterfaces.Node
+      implements(TestInterfaces.Node)
     end
   end
 
@@ -43,9 +43,9 @@ defmodule Absinthe.Object.DeferredTest do
       field :email, {:non_null, :string}
 
       # This references Organization but creates NO compile-time dependency!
-      belongs_to :organization, TestTypes.Organization
+      belongs_to(:organization, TestTypes.Organization)
 
-      implements TestInterfaces.Node
+      implements(TestInterfaces.Node)
     end
   end
 
@@ -62,9 +62,9 @@ defmodule Absinthe.Object.DeferredTest do
       field :body, :string
 
       # Reference to User - no compile dependency
-      belongs_to :author, TestTypes.User
+      belongs_to(:author, TestTypes.User)
 
-      implements TestInterfaces.Node
+      implements(TestInterfaces.Node)
     end
   end
 

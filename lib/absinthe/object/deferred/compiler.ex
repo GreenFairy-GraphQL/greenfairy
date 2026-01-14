@@ -45,7 +45,7 @@ defmodule Absinthe.Object.Deferred.Compiler do
     type_definitions = interfaces ++ objects
 
     quote do
-      unquote_splicing(type_definitions)
+      (unquote_splicing(type_definitions))
     end
   end
 

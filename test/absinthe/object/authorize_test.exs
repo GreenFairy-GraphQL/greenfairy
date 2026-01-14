@@ -20,7 +20,7 @@ defmodule Absinthe.Object.AuthorizeTest do
       use Absinthe.Object.Type
 
       type "AuthorizedUser", struct: TestUser do
-        authorize fn user, ctx ->
+        authorize(fn user, ctx ->
           current_user = ctx[:current_user]
 
           cond do
@@ -28,7 +28,7 @@ defmodule Absinthe.Object.AuthorizeTest do
             is_map(current_user) and current_user[:id] == user.id -> [:id, :name, :email]
             true -> [:id, :name]
           end
-        end
+        end)
 
         field :id, non_null(:id)
         field :name, :string
@@ -90,7 +90,7 @@ defmodule Absinthe.Object.AuthorizeTest do
       use Absinthe.Object.Type
 
       type "PostWithPath", struct: TestPost do
-        authorize fn post, ctx, info ->
+        authorize(fn post, ctx, info ->
           # Check if we're accessing through the author's own profile
           parent_is_author =
             case info.parent do
@@ -106,7 +106,7 @@ defmodule Absinthe.Object.AuthorizeTest do
             is_map(current_user) and current_user[:id] == post.author_id -> [:id, :title, :content]
             true -> [:id, :title]
           end
-        end
+        end)
 
         field :id, non_null(:id)
         field :title, :string
@@ -179,7 +179,7 @@ defmodule Absinthe.Object.AuthorizeTest do
       use Absinthe.Object.Type
 
       type "LegacyPolicyUser", struct: TestUser do
-        authorize with: TestPolicy
+        authorize(with: TestPolicy)
 
         field :id, non_null(:id)
         field :name, :string

@@ -208,7 +208,9 @@ defmodule Mix.Tasks.Absinthe.Object.Gen do
 
   defp infer_graphql_namespace do
     case Mix.Project.config()[:app] do
-      nil -> raise "Could not infer GraphQL namespace. Please configure :graphql_namespace"
+      nil ->
+        raise "Could not infer GraphQL namespace. Please configure :graphql_namespace"
+
       app ->
         app_name = app |> Atom.to_string() |> Macro.camelize()
         Module.concat([app_name, GraphQL])
@@ -217,7 +219,9 @@ defmodule Mix.Tasks.Absinthe.Object.Gen do
 
   defp infer_domain_namespace do
     case Mix.Project.config()[:app] do
-      nil -> raise "Could not infer domain namespace. Please configure :domain_namespace"
+      nil ->
+        raise "Could not infer domain namespace. Please configure :domain_namespace"
+
       app ->
         app |> Atom.to_string() |> Macro.camelize() |> List.wrap() |> Module.concat()
     end

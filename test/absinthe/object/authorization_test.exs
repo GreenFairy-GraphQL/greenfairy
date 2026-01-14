@@ -26,7 +26,7 @@ defmodule Absinthe.Object.AuthorizationTest do
     use Absinthe.Object.Type
 
     type "AuthorizedUser", struct: TestStruct do
-      authorize with: TestPolicy
+      authorize(with: TestPolicy)
 
       field :id, non_null(:id)
       field :name, :string

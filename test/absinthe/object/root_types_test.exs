@@ -189,7 +189,8 @@ defmodule Absinthe.Object.RootTypesTest do
     end
 
     test "RootMutationExample has correct identifier" do
-      assert RootMutationExample.__absinthe_object_mutation_fields_identifier__() == :absinthe_object_root_mutation_fields
+      assert RootMutationExample.__absinthe_object_mutation_fields_identifier__() ==
+               :absinthe_object_root_mutation_fields
     end
   end
 end

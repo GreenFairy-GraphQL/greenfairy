@@ -163,6 +163,7 @@ defmodule Absinthe.Object.Field.ConnectionTest do
           edge do
             field :friendship_date, :string
           end
+
           field :total_count, :integer
         end
       end

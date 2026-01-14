@@ -246,13 +246,13 @@ defmodule Absinthe.Object.TypeTest do
       field :name, :string
 
       # Test has_many relationship
-      has_many :posts, PostType
+      has_many(:posts, PostType)
 
       # Test has_one relationship
-      has_one :profile, ProfileType
+      has_one(:profile, ProfileType)
 
       # Test belongs_to with options
-      belongs_to :organization, OrganizationType, source: :custom_source
+      belongs_to(:organization, OrganizationType, source: :custom_source)
     end
   end
 
