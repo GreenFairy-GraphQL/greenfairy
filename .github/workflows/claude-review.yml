@@ -31,7 +31,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            Review this pull request for an Elixir GraphQL library called Absinthe.Object.
+            Review this pull request for an Elixir GraphQL library called GreenFairy.
 
             Focus on:
             1. Code quality and Elixir best practices
