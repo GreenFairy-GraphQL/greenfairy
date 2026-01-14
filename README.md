@@ -404,6 +404,41 @@ end
 
 This generates a `UserFilter` input type automatically with operators appropriate for each field type.
 
+## Relay Support
+
+Absinthe.Object provides built-in Relay specification support, eliminating the need for `absinthe_relay`:
+
+```elixir
+defmodule MyApp.GraphQL.Schema do
+  use Absinthe.Object.Schema, discover: [MyApp.GraphQL]
+  use Absinthe.Object.Relay, repo: MyApp.Repo
+end
+```
+
+```elixir
+defmodule MyApp.GraphQL.Types.User do
+  use Absinthe.Object.Type
+  import Absinthe.Object.Relay.Field
+
+  type "User", struct: MyApp.User do
+    implements Absinthe.Object.BuiltIns.Node
+
+    global_id :id  # Generates globally unique ID
+    field :email, :string
+
+    connection :friends, MyApp.GraphQL.Types.User
+  end
+end
+```
+
+Features included:
+- **Global IDs** - `global_id` macro for Relay-compliant object identification
+- **Node Query** - `node(id: ID!)` and `nodes(ids: [ID!]!)` query fields
+- **Connections** - Built-in cursor-based pagination
+- **Relay Mutations** - `relay_mutation` macro with `clientMutationId` support
+
+See the [Relay Guide](https://hexdocs.pm/absinthe_object/relay.html) for full documentation.
+
 ## Directory Structure
 
 We recommend organizing your GraphQL modules like this:
@@ -463,6 +498,13 @@ lib/my_app/graphql/
 - `Absinthe.Object.Extensions.CQL` - Automatic filter input generation
 - `Absinthe.Object.Extensions.Auth` - Authentication middleware helpers
 
+### Relay Support
+- `Absinthe.Object.Relay` - Full Relay specification support
+- `Absinthe.Object.Relay.GlobalId` - Global ID encoding/decoding
+- `Absinthe.Object.Relay.Node` - Node query field
+- `Absinthe.Object.Relay.Field` - Field helpers (global_id, node_resolver)
+- `Absinthe.Object.Relay.Mutation` - Relay mutation helpers
+
 ### Built-ins
 - `Absinthe.Object.BuiltIns.Node` - Relay Node interface
 - `Absinthe.Object.BuiltIns.PageInfo` - Connection PageInfo type
@@ -480,6 +522,7 @@ Full documentation is available at [HexDocs](https://hexdocs.pm/absinthe_object)
 - [Relationships and DataLoader](https://hexdocs.pm/absinthe_object/relationships.html)
 - [CQL (Filterable Queries)](https://hexdocs.pm/absinthe_object/cql.html)
 - [Connections (Pagination)](https://hexdocs.pm/absinthe_object/connections.html)
+- [Relay Support](https://hexdocs.pm/absinthe_object/relay.html)
 - [Operations](https://hexdocs.pm/absinthe_object/operations.html)
 
 ## License

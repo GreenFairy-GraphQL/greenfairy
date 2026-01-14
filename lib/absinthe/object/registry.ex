@@ -132,6 +132,28 @@ defmodule Absinthe.Object.Registry do
   end
 
   @doc """
+  Looks up the type identifier for a struct module (regardless of interface).
+
+  Returns `{:ok, identifier}` if found, `:error` otherwise.
+
+  ## Examples
+
+      Absinthe.Object.Registry.type_for_struct(MyApp.User)
+      #=> {:ok, :user}
+
+  """
+  def type_for_struct(struct_module) do
+    result =
+      get_registry()
+      |> Enum.find(fn {{struct, _iface}, _identifier} -> struct == struct_module end)
+
+    case result do
+      {{_struct, _iface}, identifier} -> {:ok, identifier}
+      nil -> :error
+    end
+  end
+
+  @doc """
   Clears all registrations. Useful for testing.
   """
   def clear do
