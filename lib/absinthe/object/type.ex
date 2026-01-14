@@ -358,8 +358,92 @@ defmodule Absinthe.Object.Type do
     end
   end
 
+  # Transform field macro - record field info and pass through to Absinthe
+  defp transform_statement({:field, meta, args}, _env) do
+    {field_name, field_type, opts, has_resolver} = parse_field_args(args)
+
+    field_info = %{
+      name: field_name,
+      type: field_type,
+      opts: opts,
+      resolver: has_resolver || false
+    }
+
+    quote do
+      @absinthe_object_fields unquote(Macro.escape(field_info))
+      unquote({:field, meta, args})
+    end
+  end
+
   # Pass through everything else unchanged - let Absinthe handle it
   defp transform_statement(other, _env), do: other
+
+  # Parse field arguments into components
+  defp parse_field_args([name]), do: {name, nil, [], nil}
+
+  defp parse_field_args([name, type]) when not is_list(type) do
+    {base_type, type_opts} = unwrap_type(type)
+    {name, base_type, type_opts, nil}
+  end
+
+  defp parse_field_args([name, opts]) when is_list(opts) do
+    case Keyword.get(opts, :do) do
+      nil -> {name, nil, opts, nil}
+      _block -> {name, nil, [], nil}
+    end
+  end
+
+  defp parse_field_args([name, type, opts]) when is_list(opts) do
+    case Keyword.pop(opts, :do) do
+      {nil, rest_opts} ->
+        {base_type, type_opts} = unwrap_type(type)
+        {name, base_type, Keyword.merge(type_opts, rest_opts), nil}
+
+      {block, rest_opts} ->
+        resolver = has_resolver?(block)
+        {base_type, type_opts} = unwrap_type(type)
+        {name, base_type, Keyword.merge(type_opts, rest_opts), resolver}
+    end
+  end
+
+  defp parse_field_args([name, type, opts, block_opts]) when is_list(opts) and is_list(block_opts) do
+    block = Keyword.get(block_opts, :do)
+    resolver = has_resolver?(block)
+    {base_type, type_opts} = unwrap_type(type)
+    {name, base_type, Keyword.merge(type_opts, opts), resolver}
+  end
+
+  defp parse_field_args(args) when is_list(args) do
+    # Fallback for any other format
+    name = List.first(args)
+
+    if length(args) > 1 do
+      {base_type, type_opts} = unwrap_type(Enum.at(args, 1))
+      {name, base_type, type_opts, nil}
+    else
+      {name, nil, [], nil}
+    end
+  end
+
+  # Unwrap non_null wrapper and extract base type
+  defp unwrap_type({:non_null, _, [inner_type]}) do
+    {base_type, inner_opts} = unwrap_type(inner_type)
+    {base_type, Keyword.merge(inner_opts, [null: false])}
+  end
+
+  defp unwrap_type({:list_of, _, [inner_type]}) do
+    {base_type, inner_opts} = unwrap_type(inner_type)
+    {base_type, Keyword.merge(inner_opts, [list: true])}
+  end
+
+  defp unwrap_type(type) when is_atom(type), do: {type, []}
+  defp unwrap_type({type, _, _}) when is_atom(type), do: {type, []}
+  defp unwrap_type(type), do: {type, []}
+
+  # Check if a block contains a resolve statement
+  defp has_resolver?({:resolve, _, _}), do: true
+  defp has_resolver?({:__block__, _, statements}), do: Enum.any?(statements, &has_resolver?/1)
+  defp has_resolver?(_), do: false
 
   # Check if a module implements the Extension behaviour
   defp extension_module?(module) when is_atom(module) do

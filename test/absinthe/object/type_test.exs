@@ -89,9 +89,7 @@ defmodule Absinthe.Object.TypeTest do
       assert NodeInterface in definition.interfaces
     end
 
-    @tag :skip
     test "records field definitions" do
-      # Field tracking not yet implemented - fields go directly to Absinthe
       definition = UserType.__absinthe_object_definition__()
       field_names = Enum.map(definition.fields, & &1.name)
 
@@ -104,9 +102,7 @@ defmodule Absinthe.Object.TypeTest do
   end
 
   describe "field/2-3 macro" do
-    @tag :skip
     test "stores field type and options" do
-      # Field tracking not yet implemented - fields go directly to Absinthe
       definition = UserType.__absinthe_object_definition__()
       email_field = Enum.find(definition.fields, &(&1.name == :email))
 
@@ -114,14 +110,12 @@ defmodule Absinthe.Object.TypeTest do
       assert email_field.opts[:null] == false
     end
 
-    @tag :skip
     test "supports fields with resolver blocks" do
-      # Field tracking not yet implemented - fields go directly to Absinthe
       definition = UserType.__absinthe_object_definition__()
       full_name_field = Enum.find(definition.fields, &(&1.name == :full_name))
 
       assert full_name_field.type == :string
-      assert full_name_field.resolver != nil
+      assert full_name_field.resolver == true
     end
   end
 

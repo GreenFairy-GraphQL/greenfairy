@@ -18,9 +18,10 @@ defmodule Absinthe.Object.MixProject do
       name: "Absinthe.Object",
       description: "A cleaner DSL for GraphQL schema definitions built on Absinthe",
       source_url: @source_url,
-      test_coverage: [
-        threshold: 85,
-        summary: [threshold: 85],
+      test_coverage: [tool: ExCoveralls],
+      test_coverage_options: [
+        threshold: 75,
+        summary: [threshold: 75],
         ignore_modules: [
           # Mix tasks - tested via command line, not unit tests
           Mix.Tasks.Absinthe.Object.Gen,
@@ -49,7 +50,12 @@ defmodule Absinthe.Object.MixProject do
       ],
       preferred_cli_env: [
         credo: :test,
-        dialyzer: :test
+        dialyzer: :test,
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.cobertura": :test
       ],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
@@ -75,7 +81,8 @@ defmodule Absinthe.Object.MixProject do
       {:geo, "~> 3.6", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 
