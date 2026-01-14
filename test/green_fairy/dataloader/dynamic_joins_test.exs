@@ -10,7 +10,7 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     schema "organizations" do
       field :name, :string
       field :status, :string
-      has_many :users, GreenFairy.Dataloader.DynamicJoinsTest.User
+      has_many(:users, GreenFairy.Dataloader.DynamicJoinsTest.User)
     end
   end
 
@@ -20,8 +20,8 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     schema "users" do
       field :name, :string
       field :email, :string
-      belongs_to :organization, Organization
-      has_many :posts, GreenFairy.Dataloader.DynamicJoinsTest.Post
+      belongs_to(:organization, Organization)
+      has_many(:posts, GreenFairy.Dataloader.DynamicJoinsTest.Post)
     end
   end
 
@@ -31,8 +31,8 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     schema "posts" do
       field :title, :string
       field :body, :string
-      belongs_to :user, User
-      has_many :comments, GreenFairy.Dataloader.DynamicJoinsTest.Comment
+      belongs_to(:user, User)
+      has_many(:comments, GreenFairy.Dataloader.DynamicJoinsTest.Comment)
     end
   end
 
@@ -41,7 +41,7 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
 
     schema "comments" do
       field :body, :string
-      belongs_to :post, Post
+      belongs_to(:post, Post)
     end
   end
 
@@ -79,12 +79,13 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     test "builds inverted query for belongs_to" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       result = DynamicJoins.invert_query(partition, [1, 2, 3])
 
@@ -95,12 +96,13 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     test "builds inverted query for has_many" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(u in User),
-        owner: Organization,
-        queryable: User,
-        field: :users
-      )
+      partition =
+        Partition.new(
+          query: from(u in User),
+          owner: Organization,
+          queryable: User,
+          field: :users
+        )
 
       result = DynamicJoins.invert_query(partition, [1, 2, 3])
 
@@ -113,12 +115,13 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     test "builds existence subquery for belongs_to" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       subquery = DynamicJoins.existence_subquery(partition, :parent)
 
@@ -129,12 +132,13 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     test "builds existence subquery for has_many" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(u in User),
-        owner: Organization,
-        queryable: User,
-        field: :users
-      )
+      partition =
+        Partition.new(
+          query: from(u in User),
+          owner: Organization,
+          queryable: User,
+          field: :users
+        )
 
       subquery = DynamicJoins.existence_subquery(partition, :parent)
 
@@ -146,12 +150,13 @@ defmodule GreenFairy.Dataloader.DynamicJoinsTest do
     test "builds existence subquery with custom owner key" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       subquery = DynamicJoins.existence_subquery(partition, :parent, :organization_id)
 

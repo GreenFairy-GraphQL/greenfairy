@@ -181,9 +181,9 @@ defmodule GreenFairy.CQL.QueryCompiler do
     subquery = DynamicJoins.existence_subquery(partition, parent_alias)
 
     if exists_value do
-      from q in query, as: ^parent_alias, where: exists(subquery(subquery))
+      from(q in query, as: ^parent_alias, where: exists(subquery(subquery)))
     else
-      from q in query, as: ^parent_alias, where: not exists(subquery(subquery))
+      from(q in query, as: ^parent_alias, where: not exists(subquery(subquery)))
     end
   end
 
@@ -205,7 +205,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
     parent_alias = Keyword.get(opts, :parent_alias, :parent)
     subquery = DynamicJoins.existence_subquery(partition, parent_alias)
 
-    from q in query, as: ^parent_alias, where: exists(subquery(subquery))
+    from(q in query, as: ^parent_alias, where: exists(subquery(subquery)))
   end
 
   defp build_partition_for_exists(field, schema, assoc) do

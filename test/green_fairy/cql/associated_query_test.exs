@@ -7,10 +7,11 @@ defmodule GreenFairy.CQL.AssociatedQueryTest do
     test "creates struct with required fields" do
       qd = %QueryDefinition{where: nil, order_by: []}
 
-      query = AssociatedQuery.new(
-        parent_field: :organization,
-        query_definition: qd
-      )
+      query =
+        AssociatedQuery.new(
+          parent_field: :organization,
+          query_definition: qd
+        )
 
       assert %AssociatedQuery{} = query
       assert query.parent_field == :organization
@@ -21,13 +22,14 @@ defmodule GreenFairy.CQL.AssociatedQueryTest do
       qd = %QueryDefinition{where: {:eq, :name, "test"}, order_by: []}
       inject_fn = fn q, _alias -> q end
 
-      query = AssociatedQuery.new(
-        association: %{cardinality: :one, queryable: SomeSchema},
-        parent_field: :organization,
-        query_definition: qd,
-        list_module: SomeModule,
-        inject: inject_fn
-      )
+      query =
+        AssociatedQuery.new(
+          association: %{cardinality: :one, queryable: SomeSchema},
+          parent_field: :organization,
+          query_definition: qd,
+          list_module: SomeModule,
+          inject: inject_fn
+        )
 
       assert query.association == %{cardinality: :one, queryable: SomeSchema}
       assert query.list_module == SomeModule

@@ -143,6 +143,7 @@ defmodule GreenFairy.Field.ConnectionTest do
         {:edge, [], [[do: {:field, [], [:extra, :string]}]]},
         {:field, [], [:total_count, :integer]}
       ]
+
       block = {:__block__, [], statements}
 
       {edge_block, connection_fields} = Connection.parse_connection_block(block)
@@ -156,6 +157,7 @@ defmodule GreenFairy.Field.ConnectionTest do
         {:field, [], [:total_count, :integer]},
         {:field, [], [:average_score, :float]}
       ]
+
       block = {:__block__, [], statements}
 
       {edge_block, connection_fields} = Connection.parse_connection_block(block)
@@ -179,6 +181,7 @@ defmodule GreenFairy.Field.ConnectionTest do
         {:edge, [], [[do: {:field, [], [:first_extra, :string]}]]},
         {:edge, [], [[do: {:field, [], [:second_extra, :string]}]]}
       ]
+
       block = {:__block__, [], statements}
 
       {edge_block, connection_fields} = Connection.parse_connection_block(block)
@@ -191,6 +194,7 @@ defmodule GreenFairy.Field.ConnectionTest do
       statements = [
         {:edge, [], [[do: {:field, [], [:extra, :string]}]]}
       ]
+
       block = {:__block__, [], statements}
 
       {edge_block, connection_fields} = Connection.parse_connection_block(block)

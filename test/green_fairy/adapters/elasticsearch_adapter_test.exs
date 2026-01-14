@@ -191,5 +191,4 @@ defmodule GreenFairy.Adapters.Elasticsearch.AdapterTest do
       refute Adapter.supports_custom_operator?(:string, :unknown_op)
     end
   end
-
 end

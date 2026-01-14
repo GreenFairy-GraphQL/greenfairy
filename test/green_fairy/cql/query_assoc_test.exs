@@ -9,7 +9,7 @@ defmodule GreenFairy.CQL.QueryAssocTest do
 
     schema "organizations" do
       field :name, :string
-      has_many :users, GreenFairy.CQL.QueryAssocTest.User
+      has_many(:users, GreenFairy.CQL.QueryAssocTest.User)
     end
   end
 
@@ -18,8 +18,8 @@ defmodule GreenFairy.CQL.QueryAssocTest do
 
     schema "users" do
       field :name, :string
-      belongs_to :organization, Organization
-      has_many :posts, GreenFairy.CQL.QueryAssocTest.Post
+      belongs_to(:organization, Organization)
+      has_many(:posts, GreenFairy.CQL.QueryAssocTest.Post)
     end
   end
 
@@ -28,7 +28,7 @@ defmodule GreenFairy.CQL.QueryAssocTest do
 
     schema "posts" do
       field :title, :string
-      belongs_to :user, User
+      belongs_to(:user, User)
     end
   end
 
@@ -59,21 +59,23 @@ defmodule GreenFairy.CQL.QueryAssocTest do
     end
 
     test "accepts description" do
-      assoc = QueryAssoc.new(
-        queryable: User,
-        field: :organization,
-        description: "The user's organization"
-      )
+      assoc =
+        QueryAssoc.new(
+          queryable: User,
+          field: :organization,
+          description: "The user's organization"
+        )
 
       assert assoc.description == "The user's organization"
     end
 
     test "accepts allow_in_order_by option" do
-      assoc = QueryAssoc.new(
-        queryable: Organization,
-        field: :users,
-        allow_in_order_by: true
-      )
+      assoc =
+        QueryAssoc.new(
+          queryable: Organization,
+          field: :users,
+          allow_in_order_by: true
+        )
 
       assert assoc.allow_in_order_by == true
     end
@@ -81,11 +83,12 @@ defmodule GreenFairy.CQL.QueryAssocTest do
     test "accepts inject function" do
       inject_fn = fn query, _field -> query end
 
-      assoc = QueryAssoc.new(
-        queryable: User,
-        field: :organization,
-        inject: inject_fn
-      )
+      assoc =
+        QueryAssoc.new(
+          queryable: User,
+          field: :organization,
+          inject: inject_fn
+        )
 
       assert assoc.inject == inject_fn
     end
@@ -125,11 +128,12 @@ defmodule GreenFairy.CQL.QueryAssocTest do
     end
 
     test "returns true for :many with allow_in_order_by" do
-      assoc = QueryAssoc.new(
-        queryable: Organization,
-        field: :users,
-        allow_in_order_by: true
-      )
+      assoc =
+        QueryAssoc.new(
+          queryable: Organization,
+          field: :users,
+          allow_in_order_by: true
+        )
 
       assert QueryAssoc.orderable?(assoc) == true
     end

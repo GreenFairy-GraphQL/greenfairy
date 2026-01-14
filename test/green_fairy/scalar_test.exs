@@ -31,22 +31,23 @@ defmodule GreenFairy.ScalarTest do
     scalar "Point" do
       description "A geographic point"
 
-      operators [:eq, :near, :within_distance]
+      operators([:eq, :near, :within_distance])
 
-      filter :near, fn field, value ->
+      filter(:near, fn field, value ->
         {:geo_near, field, value}
-      end
+      end)
 
-      filter :within_distance, fn field, value, opts ->
+      filter(:within_distance, fn field, value, opts ->
         distance = opts[:distance] || 1000
         {:geo_within, field, value, distance}
-      end
+      end)
 
       parse fn
         %Absinthe.Blueprint.Input.Object{fields: fields} ->
           lng = Enum.find_value(fields, fn %{name: n, input_value: %{value: v}} -> if n == "lng", do: v end)
           lat = Enum.find_value(fields, fn %{name: n, input_value: %{value: v}} -> if n == "lat", do: v end)
           {:ok, %{lng: lng, lat: lat}}
+
         _ ->
           :error
       end
@@ -62,11 +63,11 @@ defmodule GreenFairy.ScalarTest do
     use GreenFairy.Scalar
 
     scalar "Range" do
-      operators [:eq, :gt, :lt]
+      operators([:eq, :gt, :lt])
 
-      filter :gt, [strict: true], fn field, value, opts ->
+      filter(:gt, [strict: true], fn field, value, opts ->
         {:gt, field, value, opts}
-      end
+      end)
 
       parse fn
         %Absinthe.Blueprint.Input.Integer{value: value} -> {:ok, value}

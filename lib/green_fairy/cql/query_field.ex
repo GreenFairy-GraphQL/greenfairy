@@ -139,6 +139,9 @@ defmodule GreenFairy.CQL.QueryField do
   def default_operators(:geo_point), do: [:eq, :neq, :is_nil, :st_dwithin, :st_within_bounding_box]
   def default_operators(:money), do: [:eq, :neq, :gt, :gte, :lt, :lte, :is_nil]
   def default_operators(:duration), do: [:eq, :neq, :gt, :gte, :lt, :lte, :is_nil]
-  def default_operators({:array, _}), do: [:includes, :excludes, :includes_all, :excludes_all, :includes_any, :excludes_any, :is_empty]
+
+  def default_operators({:array, _}),
+    do: [:includes, :excludes, :includes_all, :excludes_all, :includes_any, :excludes_any, :is_empty]
+
   def default_operators(_), do: [:eq, :in, :is_nil]
 end

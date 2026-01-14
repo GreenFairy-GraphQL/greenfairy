@@ -27,10 +27,11 @@ defmodule GreenFairy.CQL.QueryDefinitionTest do
     end
 
     test "creates struct with both where and order_by" do
-      qd = QueryDefinition.new(
-        where: {:eq, :status, "active"},
-        order_by: [{:asc, :name}, {:desc, :created_at}]
-      )
+      qd =
+        QueryDefinition.new(
+          where: {:eq, :status, "active"},
+          order_by: [{:asc, :name}, {:desc, :created_at}]
+        )
 
       assert qd.where == {:eq, :status, "active"}
       assert qd.order_by == [{:asc, :name}, {:desc, :created_at}]

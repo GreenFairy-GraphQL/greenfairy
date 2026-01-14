@@ -9,7 +9,7 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
     schema "organizations" do
       field :name, :string
-      has_many :users, GreenFairy.Dataloader.PartitionTest.User
+      has_many(:users, GreenFairy.Dataloader.PartitionTest.User)
     end
   end
 
@@ -18,8 +18,8 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
     schema "users" do
       field :name, :string
-      belongs_to :organization, Organization
-      has_many :posts, GreenFairy.Dataloader.PartitionTest.Post
+      belongs_to(:organization, Organization)
+      has_many(:posts, GreenFairy.Dataloader.PartitionTest.Post)
     end
   end
 
@@ -28,7 +28,7 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
     schema "posts" do
       field :title, :string
-      belongs_to :user, User
+      belongs_to(:user, User)
     end
   end
 
@@ -38,12 +38,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
       query = from(o in Organization)
 
-      partition = Partition.new(
-        query: query,
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: query,
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       assert %Partition{} = partition
       assert partition.owner == User
@@ -61,18 +62,19 @@ defmodule GreenFairy.Dataloader.PartitionTest do
       custom_inject = fn q, _alias, _key -> q end
       post_process = fn results -> results end
 
-      partition = Partition.new(
-        query: query,
-        owner: User,
-        queryable: Organization,
-        field: :organization,
-        repo: TestRepo,
-        sort: [{:asc, dynamic([o], o.name)}],
-        connection_args: %{limit: 10, offset: 0},
-        windowed: true,
-        custom_inject: custom_inject,
-        post_process: post_process
-      )
+      partition =
+        Partition.new(
+          query: query,
+          owner: User,
+          queryable: Organization,
+          field: :organization,
+          repo: TestRepo,
+          sort: [{:asc, dynamic([o], o.name)}],
+          connection_args: %{limit: 10, offset: 0},
+          windowed: true,
+          custom_inject: custom_inject,
+          post_process: post_process
+        )
 
       assert partition.repo == TestRepo
       assert partition.windowed == true
@@ -92,12 +94,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns owner key for belongs_to association" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       assert Partition.owner_key(partition) == :organization_id
     end
@@ -105,12 +108,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns owner key for has_many association" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(u in User),
-        owner: Organization,
-        queryable: User,
-        field: :users
-      )
+      partition =
+        Partition.new(
+          query: from(u in User),
+          owner: Organization,
+          queryable: User,
+          field: :users
+        )
 
       assert Partition.owner_key(partition) == :id
     end
@@ -120,12 +124,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns related key for belongs_to association" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       assert Partition.related_key(partition) == :id
     end
@@ -133,12 +138,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns related key for has_many association" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(u in User),
-        owner: Organization,
-        queryable: User,
-        field: :users
-      )
+      partition =
+        Partition.new(
+          query: from(u in User),
+          owner: Organization,
+          queryable: User,
+          field: :users
+        )
 
       assert Partition.related_key(partition) == :organization_id
     end
@@ -148,12 +154,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns :one for belongs_to" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(o in Organization),
-        owner: User,
-        queryable: Organization,
-        field: :organization
-      )
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
 
       assert Partition.cardinality(partition) == :one
     end
@@ -161,12 +168,13 @@ defmodule GreenFairy.Dataloader.PartitionTest do
     test "returns :many for has_many" do
       import Ecto.Query
 
-      partition = Partition.new(
-        query: from(u in User),
-        owner: Organization,
-        queryable: User,
-        field: :users
-      )
+      partition =
+        Partition.new(
+          query: from(u in User),
+          owner: Organization,
+          queryable: User,
+          field: :users
+        )
 
       assert Partition.cardinality(partition) == :many
     end

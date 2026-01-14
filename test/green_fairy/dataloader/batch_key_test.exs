@@ -9,7 +9,7 @@ defmodule GreenFairy.Dataloader.BatchKeyTest do
 
     schema "organizations" do
       field :name, :string
-      has_many :users, GreenFairy.Dataloader.BatchKeyTest.User
+      has_many(:users, GreenFairy.Dataloader.BatchKeyTest.User)
     end
   end
 
@@ -18,8 +18,8 @@ defmodule GreenFairy.Dataloader.BatchKeyTest do
 
     schema "users" do
       field :name, :string
-      belongs_to :organization, Organization
-      has_many :posts, GreenFairy.Dataloader.BatchKeyTest.Post
+      belongs_to(:organization, Organization)
+      has_many(:posts, GreenFairy.Dataloader.BatchKeyTest.Post)
     end
   end
 
@@ -28,7 +28,7 @@ defmodule GreenFairy.Dataloader.BatchKeyTest do
 
     schema "posts" do
       field :title, :string
-      belongs_to :user, User
+      belongs_to(:user, User)
     end
   end
 
@@ -73,10 +73,11 @@ defmodule GreenFairy.Dataloader.BatchKeyTest do
     test "accepts force_custom_batch option" do
       user = %User{id: 1, organization_id: 10}
 
-      batch_key = BatchKey.new(user, :organization, %{},
-        repo: TestRepo,
-        force_custom_batch: true
-      )
+      batch_key =
+        BatchKey.new(user, :organization, %{},
+          repo: TestRepo,
+          force_custom_batch: true
+        )
 
       assert batch_key.force_custom_batch == true
     end

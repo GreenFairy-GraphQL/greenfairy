@@ -21,7 +21,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       field :email, :string
       field :age, :integer
       field :role, :string
-      belongs_to :organization, Organization
+      belongs_to(:organization, Organization)
     end
   end
 
@@ -134,6 +134,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
   describe "compile/4 with logical operators" do
     test "compiles _and operator" do
       query = User
+
       filter = %{
         _and: [
           %{name: %{_eq: "Alice"}},
@@ -147,6 +148,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
 
     test "compiles _or operator" do
       query = User
+
       filter = %{
         _or: [
           %{name: %{_eq: "Alice"}},
@@ -160,6 +162,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
 
     test "compiles _not operator" do
       query = User
+
       filter = %{
         _not: %{role: %{_eq: "banned"}}
       }
@@ -170,12 +173,15 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
 
     test "compiles nested logical operators" do
       query = User
+
       filter = %{
         _or: [
-          %{_and: [
-            %{name: %{_eq: "Alice"}},
-            %{age: %{_gte: 21}}
-          ]},
+          %{
+            _and: [
+              %{name: %{_eq: "Alice"}},
+              %{age: %{_gte: 21}}
+            ]
+          },
           %{role: %{_eq: "admin"}}
         ]
       }

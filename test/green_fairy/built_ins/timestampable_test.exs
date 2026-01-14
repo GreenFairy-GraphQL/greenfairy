@@ -38,11 +38,12 @@ defmodule GreenFairy.BuiltIns.TimestampableTest do
       query do
         field :post, :timestamped_post do
           resolve fn _, _, _ ->
-            {:ok, %{
-              id: "1",
-              inserted_at: "2024-01-01T00:00:00Z",
-              updated_at: "2024-01-02T00:00:00Z"
-            }}
+            {:ok,
+             %{
+               id: "1",
+               inserted_at: "2024-01-01T00:00:00Z",
+               updated_at: "2024-01-02T00:00:00Z"
+             }}
           end
         end
       end

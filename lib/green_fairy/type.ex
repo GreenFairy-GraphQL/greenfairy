@@ -428,12 +428,12 @@ defmodule GreenFairy.Type do
   # Unwrap non_null wrapper and extract base type
   defp unwrap_type({:non_null, _, [inner_type]}) do
     {base_type, inner_opts} = unwrap_type(inner_type)
-    {base_type, Keyword.merge(inner_opts, [null: false])}
+    {base_type, Keyword.merge(inner_opts, null: false)}
   end
 
   defp unwrap_type({:list_of, _, [inner_type]}) do
     {base_type, inner_opts} = unwrap_type(inner_type)
-    {base_type, Keyword.merge(inner_opts, [list: true])}
+    {base_type, Keyword.merge(inner_opts, list: true)}
   end
 
   defp unwrap_type(type) when is_atom(type), do: {type, []}

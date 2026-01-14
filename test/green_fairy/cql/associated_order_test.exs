@@ -5,10 +5,11 @@ defmodule GreenFairy.CQL.AssociatedOrderTest do
 
   describe "new/1" do
     test "creates struct with required fields" do
-      order = AssociatedOrder.new(
-        parent_field: :organization,
-        order_term: %OrderOperator{field: :name, direction: :asc}
-      )
+      order =
+        AssociatedOrder.new(
+          parent_field: :organization,
+          order_term: %OrderOperator{field: :name, direction: :asc}
+        )
 
       assert %AssociatedOrder{} = order
       assert order.parent_field == :organization
@@ -18,13 +19,14 @@ defmodule GreenFairy.CQL.AssociatedOrderTest do
     test "creates struct with all fields" do
       inject_fn = fn q, _alias -> q end
 
-      order = AssociatedOrder.new(
-        association: %{cardinality: :one},
-        parent_field: :organization,
-        order_term: %OrderOperator{field: :name, direction: :desc},
-        list_module: SomeModule,
-        inject: inject_fn
-      )
+      order =
+        AssociatedOrder.new(
+          association: %{cardinality: :one},
+          parent_field: :organization,
+          order_term: %OrderOperator{field: :name, direction: :desc},
+          list_module: SomeModule,
+          inject: inject_fn
+        )
 
       assert order.association == %{cardinality: :one}
       assert order.list_module == SomeModule
@@ -108,13 +110,15 @@ defmodule GreenFairy.CQL.AssociatedOrderTest do
 
   describe "nested ordering" do
     test "supports deeply nested orders" do
-      nested_order = AssociatedOrder.new(
-        parent_field: :organization,
-        order_term: AssociatedOrder.new(
-          parent_field: :parent_org,
-          order_term: %OrderOperator{field: :name, direction: :asc}
+      nested_order =
+        AssociatedOrder.new(
+          parent_field: :organization,
+          order_term:
+            AssociatedOrder.new(
+              parent_field: :parent_org,
+              order_term: %OrderOperator{field: :name, direction: :asc}
+            )
         )
-      )
 
       assert nested_order.parent_field == :organization
       assert nested_order.order_term.parent_field == :parent_org

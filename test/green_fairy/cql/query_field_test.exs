@@ -22,11 +22,12 @@ defmodule GreenFairy.CQL.QueryFieldTest do
     end
 
     test "creates query field with description" do
-      field = QueryField.new(
-        field: :email,
-        field_type: :string,
-        description: "User's email address"
-      )
+      field =
+        QueryField.new(
+          field: :email,
+          field_type: :string,
+          description: "User's email address"
+        )
 
       assert field.description == "User's email address"
     end
@@ -38,11 +39,12 @@ defmodule GreenFairy.CQL.QueryFieldTest do
     end
 
     test "creates field with custom operators" do
-      field = QueryField.new(
-        field: :name,
-        field_type: :string,
-        operators: [:eq, :contains]
-      )
+      field =
+        QueryField.new(
+          field: :name,
+          field_type: :string,
+          operators: [:eq, :contains]
+        )
 
       assert field.operators == [:eq, :contains]
     end
@@ -50,28 +52,44 @@ defmodule GreenFairy.CQL.QueryFieldTest do
     test "creates field with custom constraint" do
       constraint_fn = fn query, _value -> query end
 
-      field = QueryField.new(
-        field: :name,
-        field_type: :string,
-        custom_constraint: constraint_fn
-      )
+      field =
+        QueryField.new(
+          field: :name,
+          field_type: :string,
+          custom_constraint: constraint_fn
+        )
 
       assert field.custom_constraint == constraint_fn
     end
 
     test "creates field with allow_in_nested false" do
-      field = QueryField.new(
-        field: :computed,
-        field_type: :string,
-        allow_in_nested: false
-      )
+      field =
+        QueryField.new(
+          field: :computed,
+          field_type: :string,
+          allow_in_nested: false
+        )
 
       assert field.allow_in_nested == false
     end
 
     test "supports all basic types" do
-      types = [:string, :integer, :float, :decimal, :boolean, :datetime,
-               :date, :time, :id, :binary_id, :location, :geo_point, :money, :duration]
+      types = [
+        :string,
+        :integer,
+        :float,
+        :decimal,
+        :boolean,
+        :datetime,
+        :date,
+        :time,
+        :id,
+        :binary_id,
+        :location,
+        :geo_point,
+        :money,
+        :duration
+      ]
 
       for type <- types do
         field = QueryField.new(field: :test, field_type: type)
@@ -120,11 +138,12 @@ defmodule GreenFairy.CQL.QueryFieldTest do
     end
 
     test "returns false for fields with custom constraints" do
-      field = QueryField.new(
-        field: :name,
-        field_type: :string,
-        custom_constraint: fn q, _v -> q end
-      )
+      field =
+        QueryField.new(
+          field: :name,
+          field_type: :string,
+          custom_constraint: fn q, _v -> q end
+        )
 
       assert QueryField.allowed_in_nested?(field) == false
     end

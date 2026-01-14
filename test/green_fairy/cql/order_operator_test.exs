@@ -31,10 +31,11 @@ defmodule GreenFairy.CQL.OrderOperatorTest do
     end
 
     test "creates priority order operator" do
-      op = OrderOperator.from_input(:status, %{
-        direction: :asc,
-        priority: [:active, :pending, :closed]
-      })
+      op =
+        OrderOperator.from_input(:status, %{
+          direction: :asc,
+          priority: [:active, :pending, :closed]
+        })
 
       assert op.field == :status
       assert op.direction == :asc
@@ -42,10 +43,11 @@ defmodule GreenFairy.CQL.OrderOperatorTest do
     end
 
     test "creates geo distance order operator" do
-      op = OrderOperator.from_input(:location, %{
-        direction: :asc,
-        center: %{latitude: 40.7128, longitude: -74.0060}
-      })
+      op =
+        OrderOperator.from_input(:location, %{
+          direction: :asc,
+          center: %{latitude: 40.7128, longitude: -74.0060}
+        })
 
       assert op.field == :location
       assert op.direction == :asc
