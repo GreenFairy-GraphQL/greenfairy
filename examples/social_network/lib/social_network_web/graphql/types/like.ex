@@ -12,7 +12,7 @@ defmodule SocialNetworkWeb.GraphQL.Types.Like do
     field :post, :post
     field :comment, :comment
 
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
+    field :inserted_at, non_null(:naive_datetime)
+    field :updated_at, non_null(:naive_datetime)
   end
 end

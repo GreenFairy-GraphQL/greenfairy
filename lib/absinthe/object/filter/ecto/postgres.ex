@@ -21,15 +21,15 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
     adapter: Absinthe.Object.Adapters.Ecto.Postgres
 
   alias Absinthe.Object.Filters.{Geo, Text, Basic}
-  alias Absinthe.Object.Adapters.Ecto.Postgres, as: PostgresAdapter
-
-  import Ecto.Query
 
   # ===========================================================================
   # Geo Filters
   # ===========================================================================
 
   filter_impl Geo.Near do
+    import Ecto.Query
+    alias Absinthe.Object.Adapters.Ecto.Postgres, as: PostgresAdapter
+
     def apply(%PostgresAdapter{} = adapter, %{point: point, distance: dist, unit: unit}, field, query) do
       if PostgresAdapter.postgis?(adapter) do
         distance_meters = to_meters(dist, unit)
@@ -57,6 +57,9 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Geo.WithinDistance do
+    alias Absinthe.Object.Filters.Geo
+    alias Absinthe.Object.Adapters.Ecto.Postgres, as: PostgresAdapter
+
     def apply(%PostgresAdapter{} = adapter, %{point: point, distance: dist, unit: unit}, field, query) do
       # Delegate to Near implementation
       Absinthe.Object.Filter.apply(
@@ -69,6 +72,9 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Geo.WithinBounds do
+    import Ecto.Query
+    alias Absinthe.Object.Adapters.Ecto.Postgres, as: PostgresAdapter
+
     def apply(%PostgresAdapter{} = adapter, %{bounds: bounds}, field, query) do
       if PostgresAdapter.postgis?(adapter) do
         result =
@@ -84,6 +90,9 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Geo.Intersects do
+    import Ecto.Query
+    alias Absinthe.Object.Adapters.Ecto.Postgres, as: PostgresAdapter
+
     def apply(%PostgresAdapter{} = adapter, %{geometry: geometry}, field, query) do
       if PostgresAdapter.postgis?(adapter) do
         result =
@@ -103,6 +112,8 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   # ===========================================================================
 
   filter_impl Text.Fulltext do
+    import Ecto.Query
+
     def apply(_adapter, %{query: search_query, fields: nil}, field, query) do
       result =
         from(q in query,
@@ -117,14 +128,15 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
       {:ok, result}
     end
 
-    def apply(_adapter, %{query: search_query, fields: fields}, _field, query) do
-      # Multi-field search - concatenate fields
+    def apply(_adapter, %{query: search_query, fields: fields}, _field, query) when is_list(fields) do
+      # Multi-field search - build a dynamic tsvector from multiple fields
+      # Note: This is simplified - in production you might want to use a generated tsvector column
       result =
         from(q in query,
           where:
             fragment(
-              "to_tsvector('english', concat_ws(' ', ?)) @@ plainto_tsquery('english', ?)",
-              ^Enum.map(fields, &field(q, &1)),
+              "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
+              fragment("concat_ws(' ', ?)", ^fields),
               ^search_query
             )
         )
@@ -134,6 +146,8 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Text.Match do
+    import Ecto.Query
+
     def apply(_adapter, %{query: match_query}, field, query) do
       pattern = "%#{match_query}%"
 
@@ -147,6 +161,8 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Text.Prefix do
+    import Ecto.Query
+
     def apply(_adapter, %{value: prefix}, field, query) do
       pattern = "#{prefix}%"
 
@@ -160,6 +176,8 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Text.Phrase do
+    import Ecto.Query
+
     def apply(_adapter, %{phrase: phrase, slop: slop}, field, query) do
       ts_query =
         if slop > 0 do
@@ -190,61 +208,73 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   # ===========================================================================
 
   filter_impl Basic.Equals do
+    import Ecto.Query
+
     def apply(_adapter, %{value: value}, field, query) do
       {:ok, from(q in query, where: field(q, ^field) == ^value)}
     end
   end
 
   filter_impl Basic.NotEquals do
+    import Ecto.Query
+
     def apply(_adapter, %{value: value}, field, query) do
       {:ok, from(q in query, where: field(q, ^field) != ^value)}
     end
   end
 
   filter_impl Basic.In do
+    import Ecto.Query
+
     def apply(_adapter, %{values: values}, field, query) do
       {:ok, from(q in query, where: field(q, ^field) in ^values)}
     end
   end
 
   filter_impl Basic.NotIn do
+    import Ecto.Query
+
     def apply(_adapter, %{values: values}, field, query) do
       {:ok, from(q in query, where: field(q, ^field) not in ^values)}
     end
   end
 
   filter_impl Basic.Range do
+    import Ecto.Query
+
     def apply(_adapter, range, field, query) do
       result =
         query
-        |> apply_range_bound(:gt, range.gt || range.min, field, &>/2)
-        |> apply_range_bound(:gte, range.gte, field, &>=/2)
-        |> apply_range_bound(:lt, range.lt || range.max, field, &</2)
-        |> apply_range_bound(:lte, range.lte, field, &<=/2)
+        |> apply_range_bound(:gt, range.gt || range.min, field)
+        |> apply_range_bound(:gte, range.gte, field)
+        |> apply_range_bound(:lt, range.lt || range.max, field)
+        |> apply_range_bound(:lte, range.lte, field)
 
       {:ok, result}
     end
 
-    defp apply_range_bound(query, _op, nil, _field, _comparator), do: query
+    defp apply_range_bound(query, _op, nil, _field), do: query
 
-    defp apply_range_bound(query, :gt, value, field, _) do
+    defp apply_range_bound(query, :gt, value, field) do
       from(q in query, where: field(q, ^field) > ^value)
     end
 
-    defp apply_range_bound(query, :gte, value, field, _) do
+    defp apply_range_bound(query, :gte, value, field) do
       from(q in query, where: field(q, ^field) >= ^value)
     end
 
-    defp apply_range_bound(query, :lt, value, field, _) do
+    defp apply_range_bound(query, :lt, value, field) do
       from(q in query, where: field(q, ^field) < ^value)
     end
 
-    defp apply_range_bound(query, :lte, value, field, _) do
+    defp apply_range_bound(query, :lte, value, field) do
       from(q in query, where: field(q, ^field) <= ^value)
     end
   end
 
   filter_impl Basic.IsNil do
+    import Ecto.Query
+
     def apply(_adapter, %{is_nil: true}, field, query) do
       {:ok, from(q in query, where: is_nil(field(q, ^field)))}
     end
@@ -255,18 +285,28 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
   end
 
   filter_impl Basic.Contains do
+    import Ecto.Query
+
     def apply(_adapter, %{value: value, case_sensitive: true}, field, query) do
       pattern = "%#{value}%"
       {:ok, from(q in query, where: like(field(q, ^field), ^pattern))}
     end
 
     def apply(_adapter, %{value: value, case_sensitive: false}, field, query) do
+      pattern = "%#{value}%"
+      {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
+    end
+
+    def apply(_adapter, %{value: value}, field, query) do
+      # Default to case-insensitive
       pattern = "%#{value}%"
       {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
     end
   end
 
   filter_impl Basic.StartsWith do
+    import Ecto.Query
+
     def apply(_adapter, %{value: value, case_sensitive: true}, field, query) do
       pattern = "#{value}%"
       {:ok, from(q in query, where: like(field(q, ^field), ^pattern))}
@@ -276,15 +316,29 @@ defmodule Absinthe.Object.Filter.Ecto.Postgres do
       pattern = "#{value}%"
       {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
     end
+
+    def apply(_adapter, %{value: value}, field, query) do
+      # Default to case-insensitive
+      pattern = "#{value}%"
+      {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
+    end
   end
 
   filter_impl Basic.EndsWith do
+    import Ecto.Query
+
     def apply(_adapter, %{value: value, case_sensitive: true}, field, query) do
       pattern = "%#{value}"
       {:ok, from(q in query, where: like(field(q, ^field), ^pattern))}
     end
 
     def apply(_adapter, %{value: value, case_sensitive: false}, field, query) do
+      pattern = "%#{value}"
+      {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
+    end
+
+    def apply(_adapter, %{value: value}, field, query) do
+      # Default to case-insensitive
       pattern = "%#{value}"
       {:ok, from(q in query, where: ilike(field(q, ^field), ^pattern))}
     end

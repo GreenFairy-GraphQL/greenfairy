@@ -50,22 +50,40 @@ defmodule Absinthe.Object.Registry do
 
   defp ensure_lock_table do
     # Create the lock table if it doesn't exist
-    # This is idempotent - if table exists, will raise but we catch it
-    :ets.new(@lock_table, [:named_table, :public, :set])
-  catch
-    # Table already exists
-    :error, :badarg -> :ok
+    # Use whereis to check if table exists first
+    case :ets.whereis(@lock_table) do
+      :undefined ->
+        try do
+          :ets.new(@lock_table, [:named_table, :public, :set])
+        catch
+          # Table was created by another process between whereis and new
+          :error, :badarg -> :ok
+        end
+
+      _ref ->
+        :ok
+    end
   end
 
   defp acquire_lock do
+    # Ensure the table exists (might have been cleaned up between calls)
+    ensure_lock_table()
+
     # Try to insert a lock entry - insert_new is atomic
     # If insert returns true, we got the lock
     # If insert returns false, someone else has it - wait and retry
-    if :ets.insert_new(@lock_table, {:lock, self()}) do
-      :ok
-    else
-      Process.sleep(1)
-      acquire_lock()
+    try do
+      if :ets.insert_new(@lock_table, {:lock, self()}) do
+        :ok
+      else
+        Process.sleep(1)
+        acquire_lock()
+      end
+    catch
+      :error, :badarg ->
+        # Table doesn't exist, recreate and retry
+        ensure_lock_table()
+        acquire_lock()
     end
   end
 

@@ -43,7 +43,7 @@ defmodule Absinthe.Object.MixProject do
     [
       {:absinthe, "~> 1.7"},
       {:dataloader, "~> 2.0"},
-      {:protocol_ex, "~> 0.4"},
+      {:ecto, "~> 3.10"},
       {:geo, "~> 3.6", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

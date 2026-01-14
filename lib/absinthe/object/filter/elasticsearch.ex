@@ -28,12 +28,15 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
     adapter: Absinthe.Object.Adapters.Elasticsearch
 
   alias Absinthe.Object.Filters.{Geo, Text, Basic}
+  alias Absinthe.Object.Filter.Elasticsearch.Helpers
 
   # ===========================================================================
   # Geo Filters
   # ===========================================================================
 
   filter_impl Geo.Near do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{point: point, distance: dist, unit: unit}, field, query) do
       {lng, lat} = extract_coordinates(point)
       distance_str = format_distance(dist, unit)
@@ -45,7 +48,7 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
 
     defp extract_coordinates(%{coordinates: {lng, lat}}), do: {lng, lat}
@@ -58,6 +61,8 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   end
 
   filter_impl Geo.WithinDistance do
+    alias Absinthe.Object.Filters.Geo
+
     def apply(adapter, %{point: point, distance: dist, unit: unit}, field, query) do
       # Delegate to Near
       Absinthe.Object.Filter.apply(
@@ -70,6 +75,8 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   end
 
   filter_impl Geo.WithinBounds do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{bounds: bounds}, field, query) do
       filter = %{
         "geo_bounding_box" => %{
@@ -77,7 +84,7 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
 
     defp format_bounds(%{top_left: tl, bottom_right: br}) do
@@ -119,6 +126,8 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   # ===========================================================================
 
   filter_impl Text.Fulltext do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{query: search_query, fields: fields, fuzziness: fuzz, operator: op}, _field, query) do
       must_clause = %{
         "multi_match" => %{
@@ -129,7 +138,7 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_must(query, must_clause)}
+      {:ok, Helpers.append_must(query, must_clause)}
     end
 
     defp format_fuzziness(:auto), do: "AUTO"
@@ -138,6 +147,8 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   end
 
   filter_impl Text.Match do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{query: match_query, operator: op}, field, query) do
       must_clause = %{
         "match" => %{
@@ -148,11 +159,13 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_must(query, must_clause)}
+      {:ok, Helpers.append_must(query, must_clause)}
     end
   end
 
   filter_impl Text.Prefix do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: prefix}, field, query) do
       filter = %{
         "prefix" => %{
@@ -160,11 +173,13 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Text.Phrase do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{phrase: phrase, slop: slop}, field, query) do
       must_clause = %{
         "match_phrase" => %{
@@ -175,7 +190,7 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         }
       }
 
-      {:ok, append_must(query, must_clause)}
+      {:ok, Helpers.append_must(query, must_clause)}
     end
   end
 
@@ -184,34 +199,44 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   # ===========================================================================
 
   filter_impl Basic.Equals do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: value}, field, query) do
       filter = %{"term" => %{to_string(field) => value}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Basic.NotEquals do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: value}, field, query) do
       clause = %{"term" => %{to_string(field) => value}}
-      {:ok, append_must_not(query, clause)}
+      {:ok, Helpers.append_must_not(query, clause)}
     end
   end
 
   filter_impl Basic.In do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{values: values}, field, query) do
       filter = %{"terms" => %{to_string(field) => values}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Basic.NotIn do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{values: values}, field, query) do
       clause = %{"terms" => %{to_string(field) => values}}
-      {:ok, append_must_not(query, clause)}
+      {:ok, Helpers.append_must_not(query, clause)}
     end
   end
 
   filter_impl Basic.Range do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, range, field, query) do
       range_params =
         %{}
@@ -221,7 +246,7 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
         |> maybe_put("lte", range.lte || range.max)
 
       filter = %{"range" => %{to_string(field) => range_params}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
 
     defp maybe_put(map, _key, nil), do: map
@@ -229,60 +254,43 @@ defmodule Absinthe.Object.Filter.Elasticsearch do
   end
 
   filter_impl Basic.IsNil do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{is_nil: true}, field, query) do
       clause = %{"exists" => %{"field" => to_string(field)}}
-      {:ok, append_must_not(query, clause)}
+      {:ok, Helpers.append_must_not(query, clause)}
     end
 
     def apply(_adapter, %{is_nil: false}, field, query) do
       filter = %{"exists" => %{"field" => to_string(field)}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Basic.Contains do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: value}, field, query) do
       filter = %{"wildcard" => %{to_string(field) => "*#{value}*"}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Basic.StartsWith do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: value}, field, query) do
       filter = %{"prefix" => %{to_string(field) => value}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
   end
 
   filter_impl Basic.EndsWith do
+    alias Absinthe.Object.Filter.Elasticsearch.Helpers
+
     def apply(_adapter, %{value: value}, field, query) do
       filter = %{"wildcard" => %{to_string(field) => "*#{value}"}}
-      {:ok, append_filter(query, filter)}
+      {:ok, Helpers.append_filter(query, filter)}
     end
-  end
-
-  # ===========================================================================
-  # Query Building Helpers
-  # ===========================================================================
-
-  defp append_filter(query, filter) do
-    update_in(query, [Access.key("query", %{}), Access.key("bool", %{}), Access.key("filter", [])], fn
-      filters when is_list(filters) -> filters ++ [filter]
-      nil -> [filter]
-    end)
-  end
-
-  defp append_must(query, clause) do
-    update_in(query, [Access.key("query", %{}), Access.key("bool", %{}), Access.key("must", [])], fn
-      clauses when is_list(clauses) -> clauses ++ [clause]
-      nil -> [clause]
-    end)
-  end
-
-  defp append_must_not(query, clause) do
-    update_in(query, [Access.key("query", %{}), Access.key("bool", %{}), Access.key("must_not", [])], fn
-      clauses when is_list(clauses) -> clauses ++ [clause]
-      nil -> [clause]
-    end)
   end
 end

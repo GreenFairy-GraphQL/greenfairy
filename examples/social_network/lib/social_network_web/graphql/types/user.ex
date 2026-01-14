@@ -19,7 +19,7 @@ defmodule SocialNetworkWeb.GraphQL.Types.User do
     field :friends, list_of(:user)
     field :friendships, list_of(:friendship)
 
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
+    field :inserted_at, non_null(:naive_datetime)
+    field :updated_at, non_null(:naive_datetime)
   end
 end

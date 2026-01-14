@@ -15,7 +15,7 @@ defmodule SocialNetworkWeb.GraphQL.Types.Comment do
     field :replies, list_of(:comment)
     field :likes, list_of(:like)
 
-    field :inserted_at, non_null(:datetime)
-    field :updated_at, non_null(:datetime)
+    field :inserted_at, non_null(:naive_datetime)
+    field :updated_at, non_null(:naive_datetime)
   end
 end

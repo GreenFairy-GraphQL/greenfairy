@@ -3,6 +3,9 @@ defmodule SocialNetworkWeb.GraphQL.Schema do
 
   alias SocialNetworkWeb.GraphQL
 
+  # Import Absinthe built-in types (for :naive_datetime, etc.)
+  import_types Absinthe.Type.Custom
+
   # Import all type modules
   import_types GraphQL.Interfaces.Node
   import_types GraphQL.Enums.FriendshipStatus
@@ -52,7 +55,7 @@ defmodule SocialNetworkWeb.GraphQL.Schema do
     end
 
     field :posts, list_of(:post) do
-      arg :visibility, GraphQL.Enums.PostVisibility
+      arg :visibility, :post_visibility
 
       resolve fn args, _ ->
         import Ecto.Query
@@ -86,7 +89,7 @@ defmodule SocialNetworkWeb.GraphQL.Schema do
     field :create_post, :post do
       arg :body, non_null(:string)
       arg :media_url, :string
-      arg :visibility, GraphQL.Enums.PostVisibility
+      arg :visibility, :post_visibility
 
       resolve fn args, %{context: context} ->
         case context[:current_user] do

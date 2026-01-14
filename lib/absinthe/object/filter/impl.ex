@@ -2,8 +2,8 @@ defmodule Absinthe.Object.Filter.Impl do
   @moduledoc """
   Use hook for defining filter implementations.
 
-  This module hides the `protocol_ex` implementation details and provides
-  a clean DSL for defining adapter-specific filter implementations.
+  This module provides a clean DSL for defining adapter-specific filter
+  implementations using a registry-based dispatch system.
 
   ## Usage
 
@@ -56,7 +56,6 @@ defmodule Absinthe.Object.Filter.Impl do
     adapter = Keyword.fetch!(opts, :adapter)
 
     quote do
-      use ProtocolEx
       import Absinthe.Object.Filter.Impl, only: [filter_impl: 2]
 
       @__filter_impl_adapter__ unquote(adapter)
@@ -81,26 +80,36 @@ defmodule Absinthe.Object.Filter.Impl do
 
   """
   defmacro filter_impl(filter_module, do: block) do
-    quote do
-      @__filter_impls__ unquote(filter_module)
+    # Expand filter module in caller's context
+    filter_module_expanded = Macro.expand(filter_module, __CALLER__)
+    filter_name = filter_module_expanded |> Module.split() |> List.last()
 
-      defimpl_ex unquote(impl_name(filter_module)),
-        for: {@__filter_impl_adapter__, unquote(filter_module)},
-        to: Absinthe.Object.Filter do
+    # Generate a unique module name for this implementation
+    impl_module_name_ast = quote do
+      Module.concat([
+        __MODULE__,
+        String.to_atom("Impl_" <> unquote(filter_name))
+      ])
+    end
+
+    quote do
+      @__filter_impls__ unquote(filter_module_expanded)
+
+      # Define the implementation module
+      impl_module = unquote(impl_module_name_ast)
+
+      defmodule impl_module do
+        @moduledoc false
         unquote(block)
       end
+
+      # Register with the filter dispatcher
+      Absinthe.Object.Filter.register_implementation(
+        @__filter_impl_adapter__,
+        unquote(filter_module_expanded),
+        impl_module
+      )
     end
-  end
-
-  # Generate a unique implementation name
-  defp impl_name(filter_module) do
-    filter_name =
-      filter_module
-      |> Macro.expand(__ENV__)
-      |> Module.split()
-      |> List.last()
-
-    String.to_atom("Impl_#{filter_name}")
   end
 
   @doc false
