@@ -25,6 +25,68 @@ defmodule Absinthe.Object.ScalarTest do
     end
   end
 
+  defmodule PointScalar do
+    use Absinthe.Object.Scalar
+
+    scalar "Point" do
+      description "A geographic point"
+
+      operators [:eq, :near, :within_distance]
+
+      filter :near, fn field, value ->
+        {:geo_near, field, value}
+      end
+
+      filter :within_distance, fn field, value, opts ->
+        distance = opts[:distance] || 1000
+        {:geo_within, field, value, distance}
+      end
+
+      parse fn
+        %Absinthe.Blueprint.Input.Object{fields: fields} ->
+          lng = Enum.find_value(fields, fn %{name: n, input_value: %{value: v}} -> if n == "lng", do: v end)
+          lat = Enum.find_value(fields, fn %{name: n, input_value: %{value: v}} -> if n == "lat", do: v end)
+          {:ok, %{lng: lng, lat: lat}}
+        _ ->
+          :error
+      end
+
+      serialize fn point ->
+        %{lng: point.lng, lat: point.lat}
+      end
+    end
+  end
+
+  # Scalar with operators via filter with 3-arity opts
+  defmodule RangeScalar do
+    use Absinthe.Object.Scalar
+
+    scalar "Range" do
+      operators [:eq, :gt, :lt]
+
+      filter :gt, [strict: true], fn field, value, opts ->
+        {:gt, field, value, opts}
+      end
+
+      parse fn
+        %Absinthe.Blueprint.Input.Integer{value: value} -> {:ok, value}
+        _ -> :error
+      end
+
+      serialize fn value -> value end
+    end
+  end
+
+  # Scalar without operators (for testing default behavior)
+  defmodule NoOpScalar do
+    use Absinthe.Object.Scalar
+
+    scalar "NoOp" do
+      parse fn _ -> :error end
+      serialize fn v -> v end
+    end
+  end
+
   defmodule MoneyScalar do
     use Absinthe.Object.Scalar
 
@@ -160,6 +222,66 @@ defmodule Absinthe.Object.ScalarTest do
 
       assert {:ok, %{data: data}} = Absinthe.run(query, TestSchema)
       assert data["parsePrice"] == 999
+    end
+  end
+
+  describe "CQL operators" do
+    test "defines __cql_operators__/0" do
+      assert PointScalar.__cql_operators__() == [:eq, :near, :within_distance]
+    end
+
+    test "defines __has_cql_operators__/0 as true when operators defined" do
+      assert PointScalar.__has_cql_operators__() == true
+    end
+
+    test "defines __has_cql_operators__/0 as false when no operators" do
+      assert NoOpScalar.__has_cql_operators__() == false
+    end
+
+    test "__cql_operators__/0 returns empty list when no operators defined" do
+      assert NoOpScalar.__cql_operators__() == []
+    end
+  end
+
+  describe "filter macro" do
+    test "applies 2-arity filter function" do
+      result = PointScalar.__apply_filter__(:near, :location, %{lng: 1, lat: 2}, [])
+
+      assert result == {:geo_near, :location, %{lng: 1, lat: 2}}
+    end
+
+    test "applies 3-arity filter function with opts" do
+      result = PointScalar.__apply_filter__(:within_distance, :location, %{lng: 1, lat: 2}, distance: 500)
+
+      assert result == {:geo_within, :location, %{lng: 1, lat: 2}, 500}
+    end
+
+    test "applies filter defined with explicit opts parameter" do
+      result = RangeScalar.__apply_filter__(:gt, :amount, 100, strict: true)
+
+      assert result == {:gt, :amount, 100, [strict: true]}
+    end
+
+    test "returns nil for unknown operator" do
+      result = PointScalar.__apply_filter__(:unknown, :field, :value, [])
+
+      assert result == nil
+    end
+
+    test "returns nil when scalar has no filters defined" do
+      result = DateTimeScalar.__apply_filter__(:eq, :field, :value, [])
+
+      assert result == nil
+    end
+  end
+
+  describe "scalar with description option" do
+    test "accepts description in opts" do
+      type = Absinthe.Schema.lookup_type(TestSchema, :money)
+
+      assert type != nil
+      # The description from opts should be set
+      assert type.description == "A monetary value in cents"
     end
   end
 end

@@ -1,0 +1,14 @@
+{
+  "coverage_options": {
+    "minimum_coverage": 75,
+    "treat_no_relevant_lines_as_covered": true
+  },
+  "skip_files": [
+    "lib/mix/tasks/",
+    "lib/absinthe/object/deferred/definition/",
+    "lib/absinthe/object/deferred/schema.ex",
+    "lib/absinthe/object/extensions/auth/macros.ex",
+    "lib/absinthe/object/relay/node.ex",
+    "lib/absinthe/object/relay/mutation.ex"
+  ]
+}

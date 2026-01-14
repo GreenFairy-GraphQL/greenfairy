@@ -124,17 +124,79 @@ defmodule Absinthe.Object.Field.ConnectionTest do
     end
   end
 
-  describe "connection macro" do
-    # Note: The connection macro currently has a limitation where it can't define
-    # nested `object` types within a type definition due to Absinthe's restriction
-    # that `object` must be top-level. This would need refactoring to work with
-    # Absinthe's Relay extension pattern.
+  describe "parse_connection_block/1" do
+    test "handles nil" do
+      assert {nil, nil} = Connection.parse_connection_block(nil)
+    end
 
-    # For now, we test the parsing helpers used by the macro
-    test "parse_connection_block handles nil" do
-      # Testing through reflection since parse_connection_block is private
-      # The from_list function exercises the core pagination logic
-      assert {:ok, _} = Connection.from_list([], %{})
+    test "parses block with only edge" do
+      block = {:edge, [], [[do: {:field, [], [:extra, :string]}]]}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+
+      assert edge_block == {:field, [], [:extra, :string]}
+      assert connection_fields == nil
+    end
+
+    test "parses block with edge and other fields" do
+      statements = [
+        {:edge, [], [[do: {:field, [], [:extra, :string]}]]},
+        {:field, [], [:total_count, :integer]}
+      ]
+      block = {:__block__, [], statements}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+
+      assert edge_block == {:field, [], [:extra, :string]}
+      assert connection_fields == {:__block__, [], [{:field, [], [:total_count, :integer]}]}
+    end
+
+    test "parses block with only connection fields (no edge)" do
+      statements = [
+        {:field, [], [:total_count, :integer]},
+        {:field, [], [:average_score, :float]}
+      ]
+      block = {:__block__, [], statements}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+
+      assert edge_block == nil
+      assert connection_fields == {:__block__, [], statements}
+    end
+
+    test "parses single statement that is not edge" do
+      single = {:field, [], [:total_count, :integer]}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(single)
+
+      assert edge_block == nil
+      assert connection_fields == single
+    end
+
+    test "handles multiple edges (takes first)" do
+      # When there are multiple edge declarations, it takes the first one
+      statements = [
+        {:edge, [], [[do: {:field, [], [:first_extra, :string]}]]},
+        {:edge, [], [[do: {:field, [], [:second_extra, :string]}]]}
+      ]
+      block = {:__block__, [], statements}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+
+      assert edge_block == {:field, [], [:first_extra, :string]}
+      assert connection_fields == nil
+    end
+
+    test "handles block with empty statements after filtering edges" do
+      statements = [
+        {:edge, [], [[do: {:field, [], [:extra, :string]}]]}
+      ]
+      block = {:__block__, [], statements}
+
+      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+
+      assert edge_block == {:field, [], [:extra, :string]}
+      assert connection_fields == nil
     end
   end
 

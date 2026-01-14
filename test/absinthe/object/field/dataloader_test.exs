@@ -157,4 +157,22 @@ defmodule Absinthe.Object.Field.DataloaderTest do
       |> Map.new()
     end
   end
+
+  describe "source_for/1" do
+    test "returns :repo when type has no struct" do
+      assert DL.source_for(NonExistentModule) == :repo
+    end
+
+    test "returns :repo when struct has no adapter" do
+      # SomeModule doesn't have __absinthe_object_struct__
+      assert DL.source_for(SomeModule) == :repo
+    end
+  end
+
+  describe "resolver with explicit adapter" do
+    test "uses provided adapter" do
+      resolver = DL.resolver(SomeModule, :items, adapter: Absinthe.Object.Adapters.Ecto)
+      assert is_function(resolver, 3)
+    end
+  end
 end
