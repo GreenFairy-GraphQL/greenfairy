@@ -18,7 +18,32 @@ defmodule Absinthe.Object.MixProject do
       name: "Absinthe.Object",
       description: "A cleaner DSL for GraphQL schema definitions built on Absinthe",
       source_url: @source_url,
-      test_coverage: [threshold: 85, summary: [threshold: 85]],
+      test_coverage: [
+        threshold: 85,
+        summary: [threshold: 85],
+        ignore_modules: [
+          # Mix tasks - tested via command line, not unit tests
+          Mix.Tasks.Absinthe.Object.Gen,
+          Mix.Tasks.Absinthe.Object.Gen.Type,
+          Mix.Tasks.Absinthe.Object.Gen.Enum,
+          Mix.Tasks.Absinthe.Object.Gen.Input,
+          Mix.Tasks.Absinthe.Object.Gen.Interface,
+          Mix.Tasks.Absinthe.Object.Gen.Schema,
+          # Deferred definition structs - just data structures
+          Absinthe.Object.Deferred.Definition.Arg,
+          Absinthe.Object.Deferred.Definition.Connection,
+          Absinthe.Object.Deferred.Definition.Enum,
+          Absinthe.Object.Deferred.Definition.Field,
+          Absinthe.Object.Deferred.Definition.Input,
+          Absinthe.Object.Deferred.Definition.Interface,
+          Absinthe.Object.Deferred.Definition.Object,
+          Absinthe.Object.Deferred.Definition.Scalar,
+          Absinthe.Object.Deferred.Definition.Union,
+          Absinthe.Object.Deferred.Schema,
+          # Macro-only modules
+          Absinthe.Object.Extensions.Auth.Macros
+        ]
+      ],
       preferred_cli_env: [
         credo: :test,
         dialyzer: :test

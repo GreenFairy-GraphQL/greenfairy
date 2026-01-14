@@ -34,3 +34,8 @@ absinthe_object-*.tar
 
 # macOS
 .DS_Store
+
+# Example app build artifacts
+examples/*/_build/
+examples/*/deps/
+examples/*/mix.lock

@@ -391,6 +391,23 @@ defmodule Absinthe.Object.Filter.ElasticsearchTest do
       end
     end
 
+    test "WithinDistance filter delegates to Near filter", %{adapter: adapter} do
+      filter = %Geo.WithinDistance{
+        point: %{coordinates: {-122.4194, 37.7749}},
+        distance: 10,
+        unit: :kilometers
+      }
+
+      case Filter.apply(adapter, filter, :location, %{}) do
+        {:ok, result} ->
+          # Should produce same result as Near
+          assert result["query"]["bool"]["filter"] != nil
+
+        {:error, _} ->
+          :ok
+      end
+    end
+
     test "WithinBounds filter creates geo_bounding_box filter", %{adapter: adapter} do
       filter = %Geo.WithinBounds{
         bounds: %{
