@@ -81,6 +81,18 @@ defmodule GreenFairy.UnionTest do
     test "defines __green_fairy_kind__/0" do
       assert SearchResult.__green_fairy_kind__() == :union
     end
+
+    test "defines __green_fairy_referenced_types__/0 with member types" do
+      refs = SearchResult.__green_fairy_referenced_types__()
+      assert is_list(refs)
+      assert :search_user in refs
+      assert :search_post in refs
+    end
+
+    test "definition has correct name" do
+      definition = SearchResult.__green_fairy_definition__()
+      assert definition.name == "SearchResult"
+    end
   end
 
   describe "Absinthe integration" do

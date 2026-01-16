@@ -37,12 +37,6 @@ defmodule GreenFairy.CQL.QueryCompiler do
   alias GreenFairy.CQL.Operators.Exists
   alias GreenFairy.Dataloader.{DynamicJoins, Partition}
 
-  @comparison_operators [:_eq, :_ne, :_gt, :_gte, :_lt, :_lte]
-  @list_operators [:_in, :_nin]
-  @string_operators [:_like, :_ilike, :_nlike, :_nilike]
-  @null_operators [:_is_null]
-  @logical_operators [:_and, :_or, :_not]
-
   @type filter_input :: map()
   @type compile_result :: {:ok, Ecto.Query.t()} | {:error, String.t()}
 
@@ -51,7 +45,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   # ============================================================================
 
   @doc """
-  Compiles a CQL filter input into an Ecto query.
+  Compiles a CQL filter input into an Ecto query using the adapter system.
 
   ## Parameters
 
@@ -59,7 +53,9 @@ defmodule GreenFairy.CQL.QueryCompiler do
   - `filter` - CQL filter input map
   - `schema` - The schema module for the query's root type
   - `opts` - Options:
+    - `:adapter` - The CQL adapter module (required)
     - `:parent_alias` - Alias to use for parent references (default: nil)
+    - `:binding` - Query binding for associations (default: nil)
 
   ## Returns
 
@@ -68,7 +64,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   ## Example
 
       iex> filter = %{name: %{_eq: "Alice"}, organization: %{status: %{_eq: "active"}}}
-      iex> QueryCompiler.compile(User, filter, MyApp.User)
+      iex> QueryCompiler.compile(query, filter, MyApp.User, adapter: PostgresAdapter)
       {:ok, #Ecto.Query<...>}
   """
   def compile(query, filter, schema, opts \\ [])
@@ -76,8 +72,10 @@ defmodule GreenFairy.CQL.QueryCompiler do
   def compile(query, filter, _schema, _opts) when filter == %{}, do: {:ok, query}
 
   def compile(query, filter, schema, opts) do
+    adapter = Keyword.fetch!(opts, :adapter)
+
     with :ok <- Exists.validate_exists_usage(filter, opts) do
-      compiled = compile_filter(query, filter, schema, opts)
+      compiled = compile_filter(query, filter, schema, adapter, opts)
       {:ok, compiled}
     end
   end
@@ -96,21 +94,21 @@ defmodule GreenFairy.CQL.QueryCompiler do
   # Filter Compilation
   # ============================================================================
 
-  defp compile_filter(query, nil, _schema, _opts), do: query
-  defp compile_filter(query, filter, _schema, _opts) when filter == %{}, do: query
+  defp compile_filter(query, nil, _schema, _adapter, _opts), do: query
+  defp compile_filter(query, filter, _schema, _adapter, _opts) when filter == %{}, do: query
 
-  defp compile_filter(query, filter, schema, opts) when is_map(filter) do
+  defp compile_filter(query, filter, schema, adapter, opts) when is_map(filter) do
     Enum.reduce(filter, query, fn {key, value}, acc ->
-      compile_condition(acc, key, value, schema, opts)
+      compile_condition(acc, key, value, schema, adapter, opts)
     end)
   end
 
   # Logical operators
-  defp compile_condition(query, :_and, filters, schema, opts) when is_list(filters) do
+  defp compile_condition(query, :_and, filters, schema, adapter, opts) when is_list(filters) do
     case Exists.validate_exists_in_logical_operator(filters, :_and) do
       :ok ->
         Enum.reduce(filters, query, fn filter, acc ->
-          compile_filter(acc, filter, schema, opts)
+          compile_filter(acc, filter, schema, adapter, opts)
         end)
 
       {:error, _msg} ->
@@ -118,12 +116,12 @@ defmodule GreenFairy.CQL.QueryCompiler do
     end
   end
 
-  defp compile_condition(query, :_or, filters, schema, opts) when is_list(filters) do
+  defp compile_condition(query, :_or, filters, schema, adapter, opts) when is_list(filters) do
     case Exists.validate_exists_in_logical_operator(filters, :_or) do
       :ok ->
         dynamics =
           Enum.map(filters, fn filter ->
-            build_dynamic_for_filter(filter, schema, opts)
+            build_dynamic_for_filter(filter, schema, adapter, opts)
           end)
 
         combined = Enum.reduce(dynamics, fn d, acc -> dynamic([q], ^acc or ^d) end)
@@ -134,27 +132,27 @@ defmodule GreenFairy.CQL.QueryCompiler do
     end
   end
 
-  defp compile_condition(query, :_not, filter, schema, opts) when is_map(filter) do
-    subquery_dynamic = build_dynamic_for_filter(filter, schema, opts)
+  defp compile_condition(query, :_not, filter, schema, adapter, opts) when is_map(filter) do
+    subquery_dynamic = build_dynamic_for_filter(filter, schema, adapter, opts)
     where(query, ^dynamic([q], not (^subquery_dynamic)))
   end
 
   # Exists operator (only valid in nested context)
-  defp compile_condition(query, :_exists, _value, _schema, _opts) do
+  defp compile_condition(query, :_exists, _value, _schema, _adapter, _opts) do
     # _exists at top level is invalid; validation catches this
     query
   end
 
   # Field conditions
-  defp compile_condition(query, field, operators, schema, opts) when is_map(operators) do
+  defp compile_condition(query, field, operators, schema, adapter, opts) when is_map(operators) do
     if association?(schema, field) do
-      compile_association_filter(query, field, operators, schema, opts)
+      compile_association_filter(query, field, operators, schema, adapter, opts)
     else
-      compile_field_operators(query, field, operators, schema, opts)
+      compile_field_operators(query, field, operators, schema, adapter, opts)
     end
   end
 
-  defp compile_condition(query, _field, _value, _schema, _opts) do
+  defp compile_condition(query, _field, _value, _schema, _adapter, _opts) do
     query
   end
 
@@ -162,7 +160,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   # Association Filtering
   # ============================================================================
 
-  defp compile_association_filter(query, field, filter, schema, opts) do
+  defp compile_association_filter(query, field, filter, schema, adapter, opts) do
     assoc = schema.__schema__(:association, field)
 
     if Map.has_key?(filter, :_exists) do
@@ -170,7 +168,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
       compile_exists(query, field, filter[:_exists], schema, assoc, opts)
     else
       # Build existence subquery for nested conditions
-      compile_nested_filter(query, field, filter, schema, assoc, opts)
+      compile_nested_filter(query, field, filter, schema, assoc, adapter, opts)
     end
   end
 
@@ -187,13 +185,13 @@ defmodule GreenFairy.CQL.QueryCompiler do
     end
   end
 
-  defp compile_nested_filter(query, field, filter, schema, assoc, opts) do
+  defp compile_nested_filter(query, field, filter, schema, assoc, adapter, opts) do
     # Build a partition with the nested filter conditions applied
     related = assoc.related
     nested_opts = Keyword.put(opts, :is_nested, true)
 
     base_query = from(r in related)
-    filtered_query = compile_filter(base_query, filter, related, nested_opts)
+    filtered_query = compile_filter(base_query, filter, related, adapter, nested_opts)
 
     partition = %Partition{
       query: filtered_query,
@@ -221,138 +219,86 @@ defmodule GreenFairy.CQL.QueryCompiler do
   end
 
   # ============================================================================
-  # Field Operators
+  # Field Operators - Delegated to Adapter
   # ============================================================================
 
-  defp compile_field_operators(query, field, operators, _schema, _opts) when is_map(operators) do
+  defp compile_field_operators(query, field, operators, schema, adapter, opts) when is_map(operators) do
+    binding = Keyword.get(opts, :binding)
+    # Look up field type from the schema - this is required for scalar delegation
+    field_type = schema.__schema__(:type, field)
+
     Enum.reduce(operators, query, fn {op, value}, acc ->
-      apply_operator(acc, field, op, value)
+      # Delegate ALL operator logic to the adapter
+      # Primary adapter (Ecto/ES) will detect and delegate to the appropriate sub-adapter
+      adapter.apply_operator(schema, acc, field, op, value, binding: binding, field_type: field_type)
     end)
-  end
-
-  # Comparison operators
-  defp apply_operator(query, field, :_eq, nil) do
-    where(query, [q], is_nil(field(q, ^field)))
-  end
-
-  defp apply_operator(query, field, :_eq, value) do
-    where(query, [q], field(q, ^field) == ^value)
-  end
-
-  defp apply_operator(query, field, :_ne, nil) do
-    where(query, [q], not is_nil(field(q, ^field)))
-  end
-
-  defp apply_operator(query, field, :_ne, value) do
-    where(query, [q], field(q, ^field) != ^value)
-  end
-
-  defp apply_operator(query, field, :_gt, value) do
-    where(query, [q], field(q, ^field) > ^value)
-  end
-
-  defp apply_operator(query, field, :_gte, value) do
-    where(query, [q], field(q, ^field) >= ^value)
-  end
-
-  defp apply_operator(query, field, :_lt, value) do
-    where(query, [q], field(q, ^field) < ^value)
-  end
-
-  defp apply_operator(query, field, :_lte, value) do
-    where(query, [q], field(q, ^field) <= ^value)
-  end
-
-  # List operators
-  defp apply_operator(query, field, :_in, values) when is_list(values) do
-    where(query, [q], field(q, ^field) in ^values)
-  end
-
-  defp apply_operator(query, field, :_nin, values) when is_list(values) do
-    where(query, [q], field(q, ^field) not in ^values)
-  end
-
-  # String operators
-  defp apply_operator(query, field, :_like, value) do
-    where(query, [q], like(field(q, ^field), ^value))
-  end
-
-  defp apply_operator(query, field, :_ilike, value) do
-    where(query, [q], ilike(field(q, ^field), ^value))
-  end
-
-  defp apply_operator(query, field, :_nlike, value) do
-    where(query, [q], not like(field(q, ^field), ^value))
-  end
-
-  defp apply_operator(query, field, :_nilike, value) do
-    where(query, [q], not ilike(field(q, ^field), ^value))
-  end
-
-  # Null check operator
-  defp apply_operator(query, field, :_is_null, true) do
-    where(query, [q], is_nil(field(q, ^field)))
-  end
-
-  defp apply_operator(query, field, :_is_null, false) do
-    where(query, [q], not is_nil(field(q, ^field)))
-  end
-
-  # Unknown operator - pass through
-  defp apply_operator(query, _field, _op, _value) do
-    query
   end
 
   # ============================================================================
   # Dynamic Building (for _or)
   # ============================================================================
+  # IMPORTANT: For _or clauses, we need to build subqueries for each condition
+  # and combine them. This allows adapter-specific operators to work correctly.
 
-  defp build_dynamic_for_filter(filter, schema, opts) do
+  defp build_dynamic_for_filter(filter, schema, adapter, opts) do
+    # For each filter condition, compile it into a separate subquery
+    # and combine the results with OR
+    #
+    # NOTE: This is a simplified implementation that handles basic field operators.
+    # For full adapter support in _or clauses, we would need to build separate
+    # queries for each condition and combine them at the query level rather than
+    # the dynamic level.
     Enum.reduce(filter, dynamic(true), fn {key, value}, acc ->
-      condition = build_dynamic_condition(key, value, schema, opts)
+      condition = build_dynamic_condition(key, value, schema, adapter, opts)
       dynamic([q], ^acc and ^condition)
     end)
   end
 
-  defp build_dynamic_condition(field, operators, schema, _opts) when is_map(operators) do
+  defp build_dynamic_condition(field, operators, schema, _adapter, _opts) when is_map(operators) do
     if association?(schema, field) do
       # For associations in _or, we need to handle specially
       # This is a simplified version - full implementation would use subqueries
       dynamic(true)
     else
+      # For regular fields, we need to build dynamics from adapter operations
+      # However, adapters work with queries, not dynamics
+      # This is a limitation that needs architectural consideration
+      # For now, fall back to basic operators
       Enum.reduce(operators, dynamic(true), fn {op, value}, acc ->
-        condition = build_operator_dynamic(field, op, value)
+        condition = build_basic_operator_dynamic(field, op, value)
         dynamic([q], ^acc and ^condition)
       end)
     end
   end
 
-  defp build_dynamic_condition(_field, _value, _schema, _opts) do
+  defp build_dynamic_condition(_field, _value, _schema, _adapter, _opts) do
     dynamic(true)
   end
 
-  defp build_operator_dynamic(field, :_eq, nil), do: dynamic([q], is_nil(field(q, ^field)))
-  defp build_operator_dynamic(field, :_eq, value), do: dynamic([q], field(q, ^field) == ^value)
-  defp build_operator_dynamic(field, :_ne, nil), do: dynamic([q], not is_nil(field(q, ^field)))
-  defp build_operator_dynamic(field, :_ne, value), do: dynamic([q], field(q, ^field) != ^value)
-  defp build_operator_dynamic(field, :_gt, value), do: dynamic([q], field(q, ^field) > ^value)
-  defp build_operator_dynamic(field, :_gte, value), do: dynamic([q], field(q, ^field) >= ^value)
-  defp build_operator_dynamic(field, :_lt, value), do: dynamic([q], field(q, ^field) < ^value)
-  defp build_operator_dynamic(field, :_lte, value), do: dynamic([q], field(q, ^field) <= ^value)
+  # Basic operator dynamics - used only in _or clauses as a fallback
+  # This is a limitation: adapters can't inject dynamics directly
+  defp build_basic_operator_dynamic(field, :_eq, nil), do: dynamic([q], is_nil(field(q, ^field)))
+  defp build_basic_operator_dynamic(field, :_eq, value), do: dynamic([q], field(q, ^field) == ^value)
+  defp build_basic_operator_dynamic(field, :_ne, nil), do: dynamic([q], not is_nil(field(q, ^field)))
+  defp build_basic_operator_dynamic(field, :_ne, value), do: dynamic([q], field(q, ^field) != ^value)
+  defp build_basic_operator_dynamic(field, :_gt, value), do: dynamic([q], field(q, ^field) > ^value)
+  defp build_basic_operator_dynamic(field, :_gte, value), do: dynamic([q], field(q, ^field) >= ^value)
+  defp build_basic_operator_dynamic(field, :_lt, value), do: dynamic([q], field(q, ^field) < ^value)
+  defp build_basic_operator_dynamic(field, :_lte, value), do: dynamic([q], field(q, ^field) <= ^value)
 
-  defp build_operator_dynamic(field, :_in, values) when is_list(values) do
+  defp build_basic_operator_dynamic(field, :_in, values) when is_list(values) do
     dynamic([q], field(q, ^field) in ^values)
   end
 
-  defp build_operator_dynamic(field, :_nin, values) when is_list(values) do
+  defp build_basic_operator_dynamic(field, :_nin, values) when is_list(values) do
     dynamic([q], field(q, ^field) not in ^values)
   end
 
-  defp build_operator_dynamic(field, :_like, value), do: dynamic([q], like(field(q, ^field), ^value))
-  defp build_operator_dynamic(field, :_ilike, value), do: dynamic([q], ilike(field(q, ^field), ^value))
-  defp build_operator_dynamic(field, :_is_null, true), do: dynamic([q], is_nil(field(q, ^field)))
-  defp build_operator_dynamic(field, :_is_null, false), do: dynamic([q], not is_nil(field(q, ^field)))
-  defp build_operator_dynamic(_field, _op, _value), do: dynamic(true)
+  defp build_basic_operator_dynamic(field, :_like, value), do: dynamic([q], like(field(q, ^field), ^value))
+  defp build_basic_operator_dynamic(field, :_ilike, value), do: dynamic([q], ilike(field(q, ^field), ^value))
+  defp build_basic_operator_dynamic(field, :_is_null, true), do: dynamic([q], is_nil(field(q, ^field)))
+  defp build_basic_operator_dynamic(field, :_is_null, false), do: dynamic([q], not is_nil(field(q, ^field)))
+  defp build_basic_operator_dynamic(_field, _op, _value), do: dynamic(true)
 
   # ============================================================================
   # Helpers
@@ -365,35 +311,4 @@ defmodule GreenFairy.CQL.QueryCompiler do
     end
   end
 
-  @doc """
-  Returns list of supported comparison operators.
-  """
-  def comparison_operators, do: @comparison_operators
-
-  @doc """
-  Returns list of supported list operators.
-  """
-  def list_operators, do: @list_operators
-
-  @doc """
-  Returns list of supported string operators.
-  """
-  def string_operators, do: @string_operators
-
-  @doc """
-  Returns list of supported null operators.
-  """
-  def null_operators, do: @null_operators
-
-  @doc """
-  Returns list of supported logical operators.
-  """
-  def logical_operators, do: @logical_operators
-
-  @doc """
-  Returns all supported operators.
-  """
-  def all_operators do
-    @comparison_operators ++ @list_operators ++ @string_operators ++ @null_operators ++ @logical_operators
-  end
 end

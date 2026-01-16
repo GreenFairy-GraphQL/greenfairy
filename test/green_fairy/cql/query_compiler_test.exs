@@ -2,6 +2,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
   use ExUnit.Case, async: true
 
   alias GreenFairy.CQL.QueryCompiler
+  alias GreenFairy.CQL.Adapters.Postgres, as: TestAdapter
 
   # Test schemas for compilation tests
   defmodule Organization do
@@ -42,7 +43,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_eq: "Alice"}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -50,7 +51,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_ne: "Bob"}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -58,7 +59,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{age: %{_gt: 18, _lt: 65}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -66,7 +67,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{role: %{_in: ["admin", "moderator"]}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -74,7 +75,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{role: %{_nin: ["banned", "suspended"]}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -82,11 +83,11 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
 
       filter_true = %{email: %{_is_null: true}}
-      assert {:ok, result} = QueryCompiler.compile(query, filter_true, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter_true, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
 
       filter_false = %{email: %{_is_null: false}}
-      assert {:ok, result} = QueryCompiler.compile(query, filter_false, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter_false, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -94,7 +95,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{email: %{_eq: nil}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -102,7 +103,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{email: %{_ne: nil}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -110,7 +111,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_like: "A%"}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -118,7 +119,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_ilike: "a%"}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -126,7 +127,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_eq: "Alice"}, age: %{_gte: 21}}
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
   end
@@ -142,7 +143,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
         ]
       }
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -156,7 +157,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
         ]
       }
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -167,7 +168,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
         _not: %{role: %{_eq: "banned"}}
       }
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -186,7 +187,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
         ]
       }
 
-      assert {:ok, result} = QueryCompiler.compile(query, filter, User)
+      assert {:ok, result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
   end
@@ -196,7 +197,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{_exists: true}
 
-      assert {:error, msg} = QueryCompiler.compile(query, filter, User, is_nested: false)
+      assert {:error, msg} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter, is_nested: false)
       assert msg =~ "can only be used in associated filters"
     end
 
@@ -204,14 +205,14 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{_exists: true}
 
-      assert {:ok, _result} = QueryCompiler.compile(query, filter, User, is_nested: true)
+      assert {:ok, _result} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter, is_nested: true)
     end
 
     test "returns error when _exists combined with other operators" do
       query = User
       filter = %{_exists: true, name: %{_eq: "test"}}
 
-      assert {:error, msg} = QueryCompiler.compile(query, filter, User, is_nested: true)
+      assert {:error, msg} = QueryCompiler.compile(query, filter, User, adapter: TestAdapter, is_nested: true)
       assert msg =~ "cannot be combined"
     end
   end
@@ -221,7 +222,7 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       query = User
       filter = %{name: %{_eq: "Alice"}}
 
-      result = QueryCompiler.compile!(query, filter, User)
+      result = QueryCompiler.compile!(query, filter, User, adapter: TestAdapter)
       assert %Ecto.Query{} = result
     end
 
@@ -230,55 +231,59 @@ defmodule GreenFairy.CQL.QueryCompilerTest do
       filter = %{_exists: true}
 
       assert_raise ArgumentError, ~r/can only be used in associated filters/, fn ->
-        QueryCompiler.compile!(query, filter, User, is_nested: false)
+        QueryCompiler.compile!(query, filter, User, adapter: TestAdapter, is_nested: false)
       end
     end
   end
 
-  describe "operator lists" do
-    test "comparison_operators returns expected operators" do
-      ops = QueryCompiler.comparison_operators()
-      assert :_eq in ops
-      assert :_ne in ops
-      assert :_gt in ops
-      assert :_gte in ops
-      assert :_lt in ops
-      assert :_lte in ops
-    end
-
-    test "list_operators returns expected operators" do
-      ops = QueryCompiler.list_operators()
-      assert :_in in ops
-      assert :_nin in ops
-    end
-
-    test "string_operators returns expected operators" do
-      ops = QueryCompiler.string_operators()
-      assert :_like in ops
-      assert :_ilike in ops
-      assert :_nlike in ops
-      assert :_nilike in ops
-    end
-
-    test "null_operators returns expected operators" do
-      ops = QueryCompiler.null_operators()
-      assert :_is_null in ops
-    end
-
-    test "logical_operators returns expected operators" do
-      ops = QueryCompiler.logical_operators()
-      assert :_and in ops
-      assert :_or in ops
-      assert :_not in ops
-    end
-
-    test "all_operators combines all operator lists" do
-      all = QueryCompiler.all_operators()
-      assert :_eq in all
-      assert :_in in all
-      assert :_like in all
-      assert :_is_null in all
-      assert :_and in all
-    end
-  end
+  # Note: Operator lists have been removed from QueryCompiler
+  # Adapters now own ALL operator logic
+  # See GreenFairy.CQL.Adapter for capabilities-based system
+  #
+  # describe "operator lists" do
+  #   test "comparison_operators returns expected operators" do
+  #     ops = QueryCompiler.comparison_operators()
+  #     assert :_eq in ops
+  #     assert :_ne in ops
+  #     assert :_gt in ops
+  #     assert :_gte in ops
+  #     assert :_lt in ops
+  #     assert :_lte in ops
+  #   end
+  #
+  #   test "list_operators returns expected operators" do
+  #     ops = QueryCompiler.list_operators()
+  #     assert :_in in ops
+  #     assert :_nin in ops
+  #   end
+  #
+  #   test "string_operators returns expected operators" do
+  #     ops = QueryCompiler.string_operators()
+  #     assert :_like in ops
+  #     assert :_ilike in ops
+  #     assert :_nlike in ops
+  #     assert :_nilike in ops
+  #   end
+  #
+  #   test "null_operators returns expected operators" do
+  #     ops = QueryCompiler.null_operators()
+  #     assert :_is_null in ops
+  #   end
+  #
+  #   test "logical_operators returns expected operators" do
+  #     ops = QueryCompiler.logical_operators()
+  #     assert :_and in ops
+  #     assert :_or in ops
+  #     assert :_not in ops
+  #   end
+  #
+  #   test "all_operators combines all operator lists" do
+  #     all = QueryCompiler.all_operators()
+  #     assert :_eq in all
+  #     assert :_in in all
+  #     assert :_like in all
+  #     assert :_is_null in all
+  #     assert :_and in all
+  #   end
+  # end
 end

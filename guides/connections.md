@@ -151,3 +151,30 @@ defmodule MyApp.GraphQL.Queries.UserQueries do
   end
 end
 ```
+
+## Connection Enhancements
+
+All connections include these additional fields:
+
+- **`nodes: [T!]`** - Direct access to nodes without edges (GitHub-style)
+- **`totalCount: Int!`** - Total matching items (ignoring pagination)
+- **`exists: Boolean!`** - Whether any items match the query
+
+```graphql
+query {
+  users(first: 10) {
+    nodes { id name }    # Simpler than edges
+    totalCount           # 1523 total users
+    exists               # true if any match
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+`totalCount` and `exists` use deferred loading - the COUNT query only runs if these fields are requested.
+
+## Next Steps
+
+- [CQL](cql.html) - Add filtering and sorting to connections
+- [Relay](relay.html) - Full Relay specification support
+- [Relationships](relationships.html) - DataLoader for efficient loading

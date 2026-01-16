@@ -56,6 +56,7 @@ defmodule GreenFairy.Input do
 
       Module.register_attribute(__MODULE__, :green_fairy_input, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_authorize_fn, accumulate: false)
+      Module.register_attribute(__MODULE__, :green_fairy_referenced_types, accumulate: true)
 
       @before_compile GreenFairy.Input
     end
@@ -141,7 +142,51 @@ defmodule GreenFairy.Input do
     end
   end
 
+  # Track field type references for graph discovery
+  defp transform_input_statement({:field, _meta, args} = field, _env) do
+    type_ref = extract_type_reference(args)
+
+    quote do
+      # Track type reference if it exists
+      if unquote(type_ref) do
+        @green_fairy_referenced_types unquote(type_ref)
+      end
+
+      unquote(field)
+    end
+  end
+
   defp transform_input_statement(other, _env), do: other
+
+  # Extract type reference from field arguments (same logic as Type.ex)
+  defp extract_type_reference([_name]), do: nil
+  defp extract_type_reference([_name, type]) when not is_list(type), do: extract_base_type(type)
+  defp extract_type_reference([_name, opts]) when is_list(opts), do: nil
+
+  defp extract_type_reference([_name, type, opts]) when is_list(opts) do
+    extract_base_type(type)
+  end
+
+  defp extract_type_reference(_), do: nil
+
+  # Extract the base type identifier, unwrapping non_null and list_of
+  defp extract_base_type({:non_null, _, [inner_type]}), do: extract_base_type(inner_type)
+  defp extract_base_type({:list_of, _, [inner_type]}), do: extract_base_type(inner_type)
+  defp extract_base_type({:__aliases__, _, _} = module_ast), do: module_ast
+
+  defp extract_base_type(type) when is_atom(type) do
+    if builtin_scalar?(type), do: nil, else: type
+  end
+
+  defp extract_base_type(_), do: nil
+
+  @builtin_scalars ~w(
+    id string integer float boolean datetime date time naive_datetime decimal
+  )a
+
+  defp builtin_scalar?(type) when is_atom(type) do
+    type in @builtin_scalars
+  end
 
   @doc false
   defmacro __before_compile__(env) do
@@ -152,6 +197,12 @@ defmodule GreenFairy.Input do
     authorize_impl = generate_authorize_impl(authorize_fn)
 
     quote do
+      # Register this input in the TypeRegistry for graph-based discovery
+      GreenFairy.TypeRegistry.register(
+        unquote(input_def[:identifier]),
+        __MODULE__
+      )
+
       # Authorization implementation
       unquote(authorize_impl)
 
@@ -172,6 +223,11 @@ defmodule GreenFairy.Input do
       @doc false
       def __green_fairy_kind__ do
         :input_object
+      end
+
+      @doc false
+      def __green_fairy_referenced_types__ do
+        unquote(Macro.escape(Module.get_attribute(env.module, :green_fairy_referenced_types) || []))
       end
     end
   end

@@ -56,16 +56,13 @@ input CqlOpStringInput {
 
 ## Basic Usage
 
-Enable CQL on a type by using the extension:
+CQL is automatically enabled for all types with a backing struct:
 
 ```elixir
 defmodule MyApp.GraphQL.Types.User do
   use GreenFairy.Type
-  alias GreenFairy.Extensions.CQL
 
   type "User", struct: MyApp.User do
-    use CQL
-
     field :id, non_null(:id)
     field :name, :string
     field :email, :string
@@ -76,7 +73,7 @@ defmodule MyApp.GraphQL.Types.User do
 end
 ```
 
-This generates a `UserFilter` input type with appropriate operators for each field.
+This automatically generates a `CqlFilterUserInput` type with appropriate operators for each field.
 
 ## Generated Operators
 
@@ -309,54 +306,46 @@ defmodule MyApp.CustomAdapter do
 end
 ```
 
-Then specify it explicitly:
+Then specify it in your schema configuration:
 
 ```elixir
-type "Custom", struct: MyApp.Custom do
-  use CQL, adapter: MyApp.CustomAdapter
-
-  # ...
-end
+# config/config.exs
+config :green_fairy, :cql_adapter, MyApp.CustomAdapter
 ```
 
 ## Schema Integration
 
-Include CQL types in your schema using the CQL.Schema module:
+CQL types are automatically generated when using `GreenFairy.Schema`:
 
 ```elixir
 defmodule MyApp.Schema do
-  use Absinthe.Schema
-  use GreenFairy.Extensions.CQL.Schema
+  use GreenFairy.Schema,
+    query: MyApp.GraphQL.Queries,
+    mutation: MyApp.GraphQL.Mutations,
+    repo: MyApp.Repo
+end
+```
 
-  # Import your types that use CQL
-  import_types MyApp.GraphQL.Types.User
-  import_types MyApp.GraphQL.Types.Post
+Filter and order inputs are automatically generated for all types with a backing struct. Use them in your queries:
 
-  query do
+```elixir
+defmodule MyApp.GraphQL.Queries do
+  use GreenFairy.Query
+
+  queries do
     field :users, list_of(:user) do
-      # Reference the generated filter type
-      arg :filter, :cql_filter_user_input
+      arg :where, :cql_filter_user_input
+      arg :order_by, list_of(:cql_order_user_input)
       resolve &MyApp.Resolvers.list_users/3
     end
   end
 end
 ```
 
-The `CQL.Schema` module automatically generates:
-
-- All operator input types (`CqlOpStringInput`, `CqlOpIntegerInput`, etc.)
-- You can generate filter inputs for specific types using `cql_filter_input/1`
-
-```elixir
-# Generate filter input for a specific type
-cql_filter_input MyApp.GraphQL.Types.User
-
-# Or for multiple types
-cql_filter_inputs [
-  MyApp.GraphQL.Types.User,
-  MyApp.GraphQL.Types.Post
-]
-```
+The schema automatically generates:
+- Filter input types (`CqlFilterUserInput`, `CqlFilterPostInput`, etc.)
+- Operator input types (`CqlOpStringInput`, `CqlOpIntegerInput`, etc.)
+- Order input types (`CqlOrderUserInput`, etc.)
 
 ## Programmatic Access
 

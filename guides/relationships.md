@@ -184,3 +184,9 @@ field :organization, :organization
 ```
 
 When a query only requests `{ organization { name } }`, the loader will only SELECT the `name` column (plus required columns like `id`).
+
+## Next Steps
+
+- [Connections](connections.html) - Relay-style pagination
+- [CQL](cql.html) - Add filtering to association queries
+- [Authorization](authorization.html) - Control access to related data

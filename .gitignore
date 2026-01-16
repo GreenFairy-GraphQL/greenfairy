@@ -40,3 +40,5 @@ examples/*/_build/
 examples/*/deps/
 examples/*/mix.lock
 priv/plts/
+
+*.db*

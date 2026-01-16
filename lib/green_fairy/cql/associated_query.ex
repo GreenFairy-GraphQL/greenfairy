@@ -36,7 +36,7 @@ defmodule GreenFairy.CQL.AssociatedQuery do
   ]
 
   @type t :: %__MODULE__{
-          association: Ecto.Association.t() | nil,
+          association: term() | nil,
           parent_field: atom(),
           query_definition: QueryDefinition.t(),
           list_module: module() | nil,

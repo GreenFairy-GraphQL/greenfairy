@@ -9,8 +9,8 @@ defmodule SocialNetwork.Accounts.User do
     field :bio, :string
     field :avatar_url, :string
 
-    has_many :posts, SocialNetwork.Content.Post
-    has_many :comments, SocialNetwork.Content.Comment
+    has_many :posts, SocialNetwork.Content.Post, foreign_key: :author_id
+    has_many :comments, SocialNetwork.Content.Comment, foreign_key: :author_id
     has_many :likes, SocialNetwork.Content.Like
 
     # Self-referential friendships

@@ -19,6 +19,17 @@ defmodule GreenFairy.BuiltIns.TimestampableTest do
     test "defines __green_fairy_kind__/0" do
       assert Timestampable.__green_fairy_kind__() == :interface
     end
+
+    test "defines __green_fairy_fields__/0" do
+      fields = Timestampable.__green_fairy_fields__()
+      assert is_list(fields)
+    end
+
+    test "definition includes resolve_type" do
+      definition = Timestampable.__green_fairy_definition__()
+      # resolve_type is stored in definition
+      assert Map.has_key?(definition, :resolve_type)
+    end
   end
 
   describe "Absinthe integration" do

@@ -98,6 +98,35 @@ defmodule GreenFairy.Extensions.AuthTest do
       assert result.state == :resolved
       assert result.value == "already done"
     end
+
+    test "handles single atom capability", %{config: _config} do
+      # When user.capabilities is a single atom (not a list)
+      custom_config = %{user_key: :current_user, capability_key: :role}
+      user = %{id: 1, role: :admin}
+
+      resolution = %Absinthe.Resolution{
+        state: :unresolved,
+        context: %{current_user: user}
+      }
+
+      result = CapabilityMiddleware.call(resolution, {[:admin], "No access", custom_config})
+      assert result.state == :unresolved
+    end
+
+    test "handles missing capability key as empty list", %{config: _config} do
+      # When the capability key doesn't exist on the user
+      custom_config = %{user_key: :current_user, capability_key: :missing_key}
+      user = %{id: 1}
+
+      resolution = %Absinthe.Resolution{
+        state: :unresolved,
+        context: %{current_user: user}
+      }
+
+      result = CapabilityMiddleware.call(resolution, {[:admin], "No access", custom_config})
+      assert result.state == :resolved
+      assert result.errors == ["No access"]
+    end
   end
 
   describe "AuthenticatedMiddleware" do
@@ -153,6 +182,17 @@ defmodule GreenFairy.Extensions.AuthTest do
 
       result = AuthenticatedMiddleware.call(resolution, {"Auth required", custom_config})
       assert result.state == :unresolved
+    end
+
+    test "passes through already resolved", %{config: config} do
+      resolution = %Absinthe.Resolution{
+        state: :resolved,
+        value: "already done"
+      }
+
+      result = AuthenticatedMiddleware.call(resolution, {"Auth required", config})
+      assert result.state == :resolved
+      assert result.value == "already done"
     end
   end
 

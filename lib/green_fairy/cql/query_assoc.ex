@@ -46,7 +46,7 @@ defmodule GreenFairy.CQL.QueryAssoc do
 
   @type t :: %__MODULE__{
           field: atom(),
-          association: Ecto.Association.t(),
+          association: term(),
           related_queryable: module(),
           query_field: atom(),
           description: String.t() | nil,

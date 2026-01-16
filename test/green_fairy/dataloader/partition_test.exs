@@ -118,6 +118,22 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
       assert Partition.owner_key(partition) == :id
     end
+
+    test "raises for non-existent association" do
+      import Ecto.Query
+
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :nonexistent
+        )
+
+      assert_raise RuntimeError, ~r/Association nonexistent not found/, fn ->
+        Partition.owner_key(partition)
+      end
+    end
   end
 
   describe "related_key/1" do
@@ -148,6 +164,22 @@ defmodule GreenFairy.Dataloader.PartitionTest do
 
       assert Partition.related_key(partition) == :organization_id
     end
+
+    test "raises for non-existent association" do
+      import Ecto.Query
+
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :nonexistent
+        )
+
+      assert_raise RuntimeError, ~r/Association nonexistent not found/, fn ->
+        Partition.related_key(partition)
+      end
+    end
   end
 
   describe "cardinality/1" do
@@ -177,6 +209,52 @@ defmodule GreenFairy.Dataloader.PartitionTest do
         )
 
       assert Partition.cardinality(partition) == :many
+    end
+
+    test "returns :one as default for non-existent association" do
+      import Ecto.Query
+
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :nonexistent
+        )
+
+      # When association doesn't have cardinality, returns :one as default
+      assert Partition.cardinality(partition) == :one
+    end
+  end
+
+  describe "partition_sort_direction" do
+    test "defaults to :asc" do
+      import Ecto.Query
+
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization
+        )
+
+      assert partition.partition_sort_direction == :asc
+    end
+
+    test "can be set to :desc" do
+      import Ecto.Query
+
+      partition =
+        Partition.new(
+          query: from(o in Organization),
+          owner: User,
+          queryable: Organization,
+          field: :organization,
+          partition_sort_direction: :desc
+        )
+
+      assert partition.partition_sort_direction == :desc
     end
   end
 end

@@ -1,9 +1,9 @@
-defmodule GreenFairy.Extensions.CQLTest do
+defmodule GreenFairy.CQLTest do
   use ExUnit.Case, async: true
 
   alias GreenFairy.Adapter
   alias GreenFairy.Adapters.Ecto, as: EctoAdapter
-  alias GreenFairy.Extensions.CQL
+  alias GreenFairy.CQL
 
   # Plain struct (not Ecto)
   defmodule PlainUser do
@@ -527,7 +527,7 @@ defmodule GreenFairy.Extensions.CQLTest do
   # ============================================================================
 
   describe "FilterInput" do
-    alias CQL.FilterInput
+    alias GreenFairy.CQL.Schema.FilterInput
 
     test "generates filter input name from string" do
       assert FilterInput.input_name("User") == :UserFilter
@@ -545,7 +545,7 @@ defmodule GreenFairy.Extensions.CQLTest do
 
   describe "GigSmart-style filter input generation" do
     # Use the module defined earlier in this test file
-    alias GreenFairy.Extensions.CQLTest.EctoCQLType
+    alias GreenFairy.CQLTest.EctoCQLType
 
     test "__cql_filter_input_identifier__ returns CqlFilter{Type}Input identifier" do
       identifier = EctoCQLType.__cql_filter_input_identifier__()
@@ -593,7 +593,7 @@ defmodule GreenFairy.Extensions.CQLTest do
   end
 
   describe "Custom filter with GigSmart-style generation" do
-    alias GreenFairy.Extensions.CQLTest.CustomFilterType
+    alias GreenFairy.CQLTest.CustomFilterType
 
     test "__cql_generate_filter_input__ includes custom filter fields" do
       ast = CustomFilterType.__cql_generate_filter_input__()

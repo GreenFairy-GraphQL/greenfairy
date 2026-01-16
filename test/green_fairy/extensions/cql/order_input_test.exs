@@ -1,7 +1,7 @@
-defmodule GreenFairy.Extensions.CQL.OrderInputTest do
+defmodule GreenFairy.CQL.OrderInputTest do
   use ExUnit.Case, async: true
 
-  alias GreenFairy.Extensions.CQL.OrderInput
+  alias GreenFairy.CQL.Schema.OrderInput
 
   describe "order_type_identifier/1" do
     test "generates identifier from string type name" do

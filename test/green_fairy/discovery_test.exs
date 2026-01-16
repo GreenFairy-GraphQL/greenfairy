@@ -294,4 +294,64 @@ defmodule GreenFairy.DiscoveryTest do
       assert __MODULE__.MultiImpl.ImplB in implementors
     end
   end
+
+  describe "discover_cql_types/1" do
+    # CQL types need a struct to have CQL enabled
+    defmodule CqlTypes.UserStruct do
+      defstruct [:id, :name, :email]
+    end
+
+    defmodule CqlTypes.CqlUser do
+      use GreenFairy.Type
+
+      type "CqlUser", struct: CqlTypes.UserStruct do
+        field :id, non_null(:id)
+        field :name, :string
+        field :email, :string
+      end
+    end
+
+    # Type without struct won't have CQL
+    defmodule CqlTypes.NonCqlType do
+      use GreenFairy.Type
+
+      type "NonCqlType" do
+        field :id, :id
+      end
+    end
+
+    test "filters modules to those with CQL config" do
+      modules = [__MODULE__.CqlTypes.CqlUser, __MODULE__.CqlTypes.NonCqlType]
+      cql_modules = Discovery.discover_cql_types(modules)
+
+      # Only the type with a struct has CQL enabled
+      assert __MODULE__.CqlTypes.CqlUser in cql_modules
+      # NonCqlType has no struct, so no CQL
+      refute __MODULE__.CqlTypes.NonCqlType in cql_modules
+    end
+
+    test "returns empty list when no CQL modules" do
+      # NonCqlType has no struct, so no CQL config
+      cql_modules = Discovery.discover_cql_types([__MODULE__.CqlTypes.NonCqlType])
+      assert cql_modules == []
+    end
+
+    test "returns empty list for empty input" do
+      assert Discovery.discover_cql_types([]) == []
+    end
+  end
+
+  describe "discover_cql_types_in_namespaces/1" do
+    test "discovers CQL types in namespace" do
+      cql_modules = Discovery.discover_cql_types_in_namespaces([__MODULE__.CqlTypes])
+
+      # Should find the CqlUser which has a struct
+      assert is_list(cql_modules)
+    end
+
+    test "returns empty list for namespace without CQL types" do
+      cql_modules = Discovery.discover_cql_types_in_namespaces([NonExistent.Namespace])
+      assert cql_modules == []
+    end
+  end
 end

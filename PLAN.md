@@ -6,7 +6,7 @@ A new Elixir library (`green_fairy`) providing a cleaner DSL for GraphQL schema 
 
 ## Library Name
 
-**`green_fairy`** (package: `github.com/gigsmart/green_fairy`)
+**`green_fairy`** (package: `github.com/GreenFairy-GraphQL/greenfairy`)
 
 **Architecture Decision: Separate Library**
 

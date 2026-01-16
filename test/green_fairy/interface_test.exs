@@ -32,6 +32,16 @@ defmodule GreenFairy.InterfaceTest do
     test "defines __green_fairy_identifier__" do
       assert TestNode.__green_fairy_identifier__() == :test_node_interface
     end
+
+    test "defines __green_fairy_fields__" do
+      fields = TestNode.__green_fairy_fields__()
+      assert is_list(fields)
+    end
+
+    test "definition includes fields" do
+      definition = TestNode.__green_fairy_definition__()
+      assert is_list(definition.fields)
+    end
   end
 
   describe "Interface integration with schema" do

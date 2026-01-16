@@ -341,4 +341,225 @@ defmodule GreenFairy.TypeTest do
       assert type.kind == :object
     end
   end
+
+  # Test authorization with function
+  defmodule TypeWithAuthFn do
+    use GreenFairy.Type
+
+    type "TypeWithAuth", struct: TestUser do
+      authorize fn object, ctx ->
+        if ctx[:admin] do
+          :all
+        else
+          [:id, :email]
+        end
+      end
+
+      field :id, non_null(:id)
+      field :email, :string
+      field :ssn, :string
+    end
+  end
+
+  describe "function-based authorization" do
+    test "__has_authorization__ returns true for types with authorize fn" do
+      assert TypeWithAuthFn.__has_authorization__ == true
+    end
+
+    test "__authorize__ returns :all for admin context" do
+      result = TypeWithAuthFn.__authorize__(%TestUser{id: "1"}, %{admin: true}, %{})
+      assert result == :all
+    end
+
+    test "__authorize__ returns limited fields for non-admin" do
+      result = TypeWithAuthFn.__authorize__(%TestUser{id: "1"}, %{}, %{})
+      assert result == [:id, :email]
+    end
+  end
+
+  # Test authorization with 3-arity function
+  defmodule TypeWithAuth3Arity do
+    use GreenFairy.Type
+
+    type "TypeWith3ArityAuth" do
+      authorize fn object, ctx, info ->
+        if info[:path] == [:query, :user] do
+          :all
+        else
+          [:id]
+        end
+      end
+
+      field :id, non_null(:id)
+      field :secret, :string
+    end
+  end
+
+  describe "3-arity authorization function" do
+    test "__authorize__ receives info argument" do
+      result = TypeWithAuth3Arity.__authorize__(%{}, %{}, %{path: [:query, :user]})
+      assert result == :all
+    end
+
+    test "__authorize__ returns limited fields when path doesn't match" do
+      result = TypeWithAuth3Arity.__authorize__(%{}, %{}, %{path: [:other]})
+      assert result == [:id]
+    end
+  end
+
+  # Type without authorization
+  defmodule TypeWithoutAuth do
+    use GreenFairy.Type
+
+    type "TypeWithoutAuth" do
+      field :id, :id
+    end
+  end
+
+  describe "type without authorization" do
+    test "__has_authorization__ returns false" do
+      assert TypeWithoutAuth.__has_authorization__ == false
+    end
+
+    test "__authorize__ returns :all" do
+      result = TypeWithoutAuth.__authorize__(%{}, %{}, %{})
+      assert result == :all
+    end
+  end
+
+  # Type with legacy policy authorization
+  defmodule TestPolicy do
+    def can?(%{admin: true}, :view, _object), do: true
+    def can?(nil, :view, _object), do: false
+    def can?(_user, :view, _object), do: true
+  end
+
+  defmodule TypeWithPolicy do
+    use GreenFairy.Type
+
+    type "TypeWithPolicy" do
+      authorize with: GreenFairy.TypeTest.TestPolicy
+
+      field :id, :id
+      field :name, :string
+    end
+  end
+
+  describe "policy-based authorization" do
+    test "__has_authorization__ returns true" do
+      assert TypeWithPolicy.__has_authorization__ == true
+    end
+
+    test "__authorize__ returns :all when policy allows" do
+      result = TypeWithPolicy.__authorize__(%{}, %{current_user: %{admin: true}}, %{})
+      assert result == :all
+    end
+
+    test "__authorize__ returns :none when policy denies" do
+      result = TypeWithPolicy.__authorize__(%{}, %{current_user: nil}, %{})
+      assert result == :none
+    end
+
+    test "__green_fairy_policy__ returns the policy module" do
+      assert TypeWithPolicy.__green_fairy_policy__() == GreenFairy.TypeTest.TestPolicy
+    end
+  end
+
+  describe "extension support" do
+    test "__green_fairy_extensions__ returns empty list for type without extensions" do
+      assert SimpleType.__green_fairy_extensions__() == []
+    end
+  end
+
+  describe "referenced types" do
+    test "__green_fairy_referenced_types__ returns referenced types" do
+      refs = UserType.__green_fairy_referenced_types__()
+      assert is_list(refs)
+      # UserType implements NodeInterface, so it should be referenced
+      assert NodeInterface in refs
+    end
+
+    test "__green_fairy_referenced_types__ returns empty for type without refs" do
+      refs = SimpleType.__green_fairy_referenced_types__()
+      assert is_list(refs)
+    end
+  end
+
+  # Type with description option
+  defmodule TypeWithDescription do
+    use GreenFairy.Type
+
+    type "DescribedType", description: "A type with a description" do
+      field :id, :id
+    end
+  end
+
+  describe "type with description" do
+    test "identifier is correct for type with description" do
+      assert TypeWithDescription.__green_fairy_identifier__() == :described_type
+    end
+  end
+
+  # Test field parsing with different argument formats
+  defmodule TypeWithVariousFields do
+    use GreenFairy.Type
+
+    type "VariousFields" do
+      # Field with non_null type
+      field :required_field, non_null(:string)
+
+      # Field with list type
+      field :list_field, list_of(:string)
+
+      # Field with nested wrapped types
+      field :nested_list, non_null(list_of(:string))
+
+      # Field with options
+      field :described_field, :string, description: "Has a description"
+
+      # Field with custom resolver
+      field :computed_field, :string do
+        resolve fn _, _, _ -> {:ok, "computed"} end
+      end
+    end
+  end
+
+  describe "field parsing variations" do
+    test "handles non_null wrapped type" do
+      definition = TypeWithVariousFields.__green_fairy_definition__()
+      req_field = Enum.find(definition.fields, &(&1.name == :required_field))
+      assert req_field != nil
+      assert req_field.type == :string
+      assert req_field.opts[:null] == false
+    end
+
+    test "handles list_of wrapped type" do
+      definition = TypeWithVariousFields.__green_fairy_definition__()
+      list_field = Enum.find(definition.fields, &(&1.name == :list_field))
+      assert list_field != nil
+      assert list_field.type == :string
+      assert list_field.opts[:list] == true
+    end
+
+    test "handles nested wrapped types" do
+      definition = TypeWithVariousFields.__green_fairy_definition__()
+      nested_field = Enum.find(definition.fields, &(&1.name == :nested_list))
+      assert nested_field != nil
+      assert nested_field.type == :string
+    end
+
+    test "handles field with options" do
+      definition = TypeWithVariousFields.__green_fairy_definition__()
+      desc_field = Enum.find(definition.fields, &(&1.name == :described_field))
+      assert desc_field != nil
+      assert desc_field.opts[:description] == "Has a description"
+    end
+
+    test "handles field with resolver block" do
+      definition = TypeWithVariousFields.__green_fairy_definition__()
+      computed_field = Enum.find(definition.fields, &(&1.name == :computed_field))
+      assert computed_field != nil
+      assert computed_field.resolver == true
+    end
+  end
 end

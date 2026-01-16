@@ -1,7 +1,16 @@
 defmodule GreenFairy.AutoResolveTypeTest do
   use ExUnit.Case, async: false
 
-  # Note: Don't clear registry - registrations happen at compile time
+  alias GreenFairy.Registry
+
+  # Ensure modules are loaded and registered before tests run
+  # This is needed because other tests may clear the registry
+  setup do
+    # Re-register the types since other tests may have cleared the registry
+    Registry.register(TestUser, :auto_user, AutoNodeInterface)
+    Registry.register(TestPost, :auto_post, AutoNodeInterface)
+    :ok
+  end
 
   defmodule TestUser do
     defstruct [:id, :email, :name]
@@ -70,10 +79,6 @@ defmodule GreenFairy.AutoResolveTypeTest do
   end
 
   describe "auto resolve_type" do
-    # Note: These tests are skipped because the registry registration happens at
-    # compile time, and the test modules may not be registered before the schema
-    # compiles. This is a known limitation of testing compile-time behavior.
-    @tag :skip
     test "interface auto-generates resolve_type from registry" do
       # Query for a user through the interface
       query = """
@@ -94,7 +99,6 @@ defmodule GreenFairy.AutoResolveTypeTest do
       assert data["node"]["name"] == "Test User"
     end
 
-    @tag :skip
     test "resolves different types correctly" do
       # Query for a post through the interface
       query = """
@@ -115,7 +119,6 @@ defmodule GreenFairy.AutoResolveTypeTest do
       assert data["node"]["body"] == "Content"
     end
 
-    @tag :skip
     test "registry contains correct mappings" do
       implementations = GreenFairy.Registry.implementations(AutoNodeInterface)
 

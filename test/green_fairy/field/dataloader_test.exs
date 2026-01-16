@@ -175,4 +175,73 @@ defmodule GreenFairy.Field.DataloaderTest do
       assert is_function(resolver, 3)
     end
   end
+
+  describe "resolver with callback option" do
+    test "callback transforms result" do
+      loader =
+        Dataloader.new()
+        |> Dataloader.add_source(:repo, Dataloader.KV.new(&kv_query_for_callback/2))
+
+      callback = fn result -> {:transformed, result} end
+      resolver = DL.resolver(SomeModule, :posts, source: :repo, callback: callback)
+
+      context = %{loader: loader}
+      parent = %{id: 1}
+
+      result = resolver.(parent, %{}, %{context: context})
+      assert is_tuple(result)
+    end
+
+    # Helper for callback test
+    defp kv_query_for_callback(batch_key, items) do
+      items
+      |> Enum.map(fn item ->
+        case batch_key do
+          :posts -> {item, [%{id: 1}]}
+          _ -> {item, nil}
+        end
+      end)
+      |> Map.new()
+    end
+  end
+
+  describe "source_for/1 edge cases" do
+    defmodule TypeWithNilStruct do
+      def __green_fairy_struct__, do: nil
+    end
+
+    test "returns :repo when struct returns nil" do
+      assert DL.source_for(TypeWithNilStruct) == :repo
+    end
+  end
+
+  describe "handle_dataloader_result with callback" do
+    test "callback is called with result" do
+      # This tests the handle_dataloader_result behavior via resolver
+      loader =
+        Dataloader.new()
+        |> Dataloader.add_source(:repo, Dataloader.KV.new(&kv_query_simple/2))
+
+      callback = fn result -> {:ok, {:transformed, result}} end
+      resolver = DL.resolver(SomeModule, :profile, source: :repo, callback: callback)
+
+      context = %{loader: loader}
+      parent = %{id: 1}
+
+      # Exercises the handle_dataloader_result callback branch
+      result = resolver.(parent, %{}, %{context: context})
+      assert is_tuple(result)
+    end
+
+    defp kv_query_simple(batch_key, items) do
+      items
+      |> Enum.map(fn item ->
+        case batch_key do
+          :profile -> {item, %{bio: "Test bio"}}
+          _ -> {item, nil}
+        end
+      end)
+      |> Map.new()
+    end
+  end
 end

@@ -1,0 +1,236 @@
+defmodule GreenFairy.CQL.Adapters.SQLiteTest do
+  use ExUnit.Case, async: true
+
+  import Ecto.Query
+
+  alias GreenFairy.CQL.Adapters.SQLite
+  alias GreenFairy.CQLAdapterTestHelper, as: Helper
+
+  setup do
+    query = Helper.base_query()
+    {:ok, query: query}
+  end
+
+  describe "adapter behavior" do
+    test "implements required callbacks" do
+      Helper.assert_adapter_behavior(SQLite)
+    end
+
+    test "capabilities/0 returns expected capabilities" do
+      capabilities = SQLite.capabilities()
+
+      assert capabilities.array_operators_require_type_cast == false
+      assert capabilities.supports_json_operators == true
+      assert capabilities.supports_full_text_search == true  # Via FTS5
+      assert capabilities.max_in_clause_items == 500
+      assert capabilities.native_arrays == false
+      assert capabilities.emulated_ilike == true
+      assert capabilities.limited_json == true
+    end
+  end
+
+  describe "supported_operators/2" do
+    test "returns scalar operators" do
+      operators = SQLite.supported_operators(:scalar, :string)
+
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_like in operators
+      assert :_ilike in operators
+      assert :_contains in operators
+    end
+
+    test "returns very limited array operators" do
+      operators = SQLite.supported_operators(:array, :string)
+
+      # SQLite JSON1 supports only basic operations
+      assert :_includes in operators
+      assert :_excludes in operators
+      assert :_is_empty in operators
+      assert :_is_null in operators
+
+      # Note: _includes_all and _includes_any require complex JSON parsing
+    end
+
+    test "returns minimal json operators" do
+      operators = SQLite.supported_operators(:json, :map)
+
+      # Only _contains, no _has_key or _nested
+      assert :_contains in operators
+    end
+  end
+
+  describe "scalar operators" do
+    test "_eq operator", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_eq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_neq operator", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_neq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_in operator", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_in, ["John", "Jane"], [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_is_null operator", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_is_null, true, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "ILIKE emulation with COLLATE NOCASE" do
+    test "_ilike uses COLLATE NOCASE", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_ilike, "%JOHN%", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "COLLATE NOCASE")
+    end
+
+    test "_nilike uses NOT LIKE with COLLATE NOCASE", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_nilike, "%SPAM%", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "COLLATE NOCASE")
+      assert Helper.has_fragment?(result, "NOT LIKE")
+    end
+
+    test "_istarts_with uses COLLATE NOCASE", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_istarts_with, "JO", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "COLLATE NOCASE")
+    end
+
+    test "_iends_with uses COLLATE NOCASE", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_iends_with, "HN", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "COLLATE NOCASE")
+    end
+
+    test "_icontains uses COLLATE NOCASE", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_icontains, "OH", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "COLLATE NOCASE")
+    end
+  end
+
+  describe "JSON1 extension array operators" do
+    test "_includes uses json_each with EXISTS", %{query: query} do
+      result = SQLite.apply_operator(query, :tags, :_includes, "premium", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "EXISTS")
+      assert Helper.has_fragment?(result, "json_each")
+    end
+
+    test "_excludes uses json_each with NOT EXISTS", %{query: query} do
+      result = SQLite.apply_operator(query, :tags, :_excludes, "spam", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "NOT EXISTS")
+      assert Helper.has_fragment?(result, "json_each")
+    end
+
+    test "_is_empty with true uses json_array_length", %{query: query} do
+      result = SQLite.apply_operator(query, :tags, :_is_empty, true, [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "json_array_length")
+      assert Helper.has_fragment?(result, "IS NULL")
+    end
+
+    test "_is_empty with false checks length > 0", %{query: query} do
+      result = SQLite.apply_operator(query, :tags, :_is_empty, false, [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "json_array_length")
+      assert Helper.has_fragment?(result, "> 0")
+    end
+  end
+
+  describe "with bindings" do
+    test "applies operator with binding" do
+      query = from(u in Helper.User, as: :user)
+      result = SQLite.apply_operator(query, :name, :_eq, "John", binding: :user)
+      assert Helper.has_where?(result)
+    end
+
+    test "applies JSON array operator with binding", %{query: query} do
+      result = SQLite.apply_operator(query, :tags, :_includes, "premium", binding: :post)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "json_each")
+    end
+  end
+
+  describe "edge cases" do
+    test "handles NULL values", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_eq, nil, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "returns unmodified query for unsupported operator", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_unsupported_op, "value", [field_type: :string])
+      assert result == query
+    end
+
+    test "handles special characters in LIKE patterns", %{query: query} do
+      result = SQLite.apply_operator(query, :name, :_like, "%'test'%", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "multiple operators" do
+    test "can chain multiple operators", %{query: query} do
+      result =
+        query
+        |> SQLite.apply_operator(:name, :_ilike, "%john%", [])
+        |> SQLite.apply_operator(:age, :_gte, 18, [])
+
+      assert length(result.wheres) == 2
+    end
+
+    test "can mix scalar and JSON array operators", %{query: query} do
+      result =
+        query
+        |> SQLite.apply_operator(:name, :_like, "%john%", [])
+        |> SQLite.apply_operator(:tags, :_includes, "premium", [])
+
+      assert length(result.wheres) == 2
+    end
+  end
+
+  describe "SQLite-specific limitations" do
+    test "no native OVERLAPS - must use workarounds" do
+      # SQLite doesn't support _includes_any by default
+      operators = SQLite.supported_operators(:array, :string)
+      refute :_includes_any in operators
+    end
+
+    test "no native JSON_CONTAINS - uses json_each subquery" do
+      query = Helper.base_query()
+      result = SQLite.apply_operator(query, :tags, :_includes, "test", [field_type: :string])
+
+      # Should use json_each, not JSON_CONTAINS
+      assert Helper.has_fragment?(result, "json_each")
+      refute Helper.has_fragment?(result, "JSON_CONTAINS")
+    end
+
+    test "json_array_length works for empty check" do
+      query = Helper.base_query()
+      result = SQLite.apply_operator(query, :tags, :_is_empty, true, [field_type: :string])
+
+      # Should use json_array_length
+      assert Helper.has_fragment?(result, "json_array_length")
+    end
+  end
+
+  describe "performance considerations" do
+    test "_in operator limited to 500 items per capabilities" do
+      capabilities = SQLite.capabilities()
+      assert capabilities.max_in_clause_items == 500
+    end
+
+    test "JSON operations require JSON1 extension" do
+      # This is documented in capabilities
+      capabilities = SQLite.capabilities()
+      assert capabilities.limited_json == true
+    end
+  end
+end

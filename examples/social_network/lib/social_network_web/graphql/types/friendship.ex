@@ -9,8 +9,9 @@ defmodule SocialNetworkWeb.GraphQL.Types.Friendship do
     field :id, non_null(:id)
     field :status, :friendship_status
 
-    field :user, non_null(:user)
-    field :friend, non_null(:user)
+    # Association fields - automatically inferred from Ecto schema
+    assoc :user
+    assoc :friend
 
     field :inserted_at, non_null(:naive_datetime)
     field :updated_at, non_null(:naive_datetime)

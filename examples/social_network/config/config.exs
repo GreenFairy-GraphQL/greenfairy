@@ -11,3 +11,6 @@ config :green_fairy, :generators,
   domain_namespace: SocialNetwork,
   default_implements: [SocialNetworkWeb.GraphQL.Interfaces.Node],
   timestamps: true
+
+# Import environment-specific config
+import_config "#{config_env()}.exs"

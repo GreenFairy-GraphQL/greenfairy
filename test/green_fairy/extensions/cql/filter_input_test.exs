@@ -1,7 +1,7 @@
-defmodule GreenFairy.Extensions.CQL.FilterInputTest do
+defmodule GreenFairy.CQL.FilterInputTest do
   use ExUnit.Case, async: true
 
-  alias GreenFairy.Extensions.CQL.FilterInput
+  alias GreenFairy.CQL.Schema.FilterInput
 
   describe "filter_type_identifier/1" do
     test "generates identifier from string type name" do
@@ -107,11 +107,11 @@ defmodule GreenFairy.Extensions.CQL.FilterInputTest do
       assert {:age, :integer, :cql_op_integer_input} in info
     end
 
-    test "returns nil operator type for unsupported fields" do
+    test "returns JSON operator type for map fields" do
       fields = [{:data, :map}]
       info = FilterInput.field_info(fields)
 
-      assert [{:data, :map, nil}] == info
+      assert [{:data, :map, :cql_op_json_input}] == info
     end
 
     test "includes custom filter information" do

@@ -139,9 +139,9 @@ def update_user(_, %{id: id, input: input}, %{context: ctx}) do
 end
 ```
 
-## Legacy Policy Support
+## Policy Module Support
 
-For backward compatibility, you can still use policy modules:
+You can also use policy modules for authorization:
 
 ```elixir
 defmodule MyApp.Policies.UserPolicy do
@@ -174,6 +174,80 @@ type "PublicProfile", struct: MyApp.PublicProfile do
 end
 ```
 
+## Unauthorized Behavior
+
+By default, accessing an unauthorized field returns a GraphQL error. You can change this behavior at the type, field, or query level.
+
+### Type-Level Default
+
+Set a default behavior for all fields in a type:
+
+```elixir
+type "User", struct: MyApp.User, on_unauthorized: :return_nil do
+  authorize fn user, ctx ->
+    if ctx[:current_user]?.admin, do: :all, else: [:id, :name]
+  end
+
+  field :id, non_null(:id)
+  field :name, :string
+  field :email, :string    # Returns nil if unauthorized
+  field :salary, :integer  # Returns nil if unauthorized
+end
+```
+
+### Field-Level Override
+
+Override the type default for specific fields:
+
+```elixir
+type "User", struct: MyApp.User, on_unauthorized: :return_nil do
+  authorize fn user, ctx ->
+    if ctx[:current_user]?.admin, do: :all, else: [:id, :name]
+  end
+
+  field :id, non_null(:id)
+  field :name, :string
+  field :email, :string                          # Uses type default (nil)
+  field :ssn, :string, on_unauthorized: :error   # Override: returns error
+end
+```
+
+### Client Directive (`@onUnauthorized`)
+
+Clients can control behavior per-field in their queries, overriding backend defaults:
+
+```graphql
+query GetUser {
+  user(id: "123") {
+    id
+    name
+    email @onUnauthorized(behavior: NIL)    # Return null if unauthorized
+    ssn @onUnauthorized(behavior: ERROR)    # Return error if unauthorized
+  }
+}
+```
+
+This is useful when:
+- A UI component can gracefully handle missing data
+- Different screens need different error handling for the same field
+- You want to fetch "best effort" data without failing the whole query
+
+### Priority Chain
+
+When determining how to handle unauthorized access:
+
+1. **Client directive** `@onUnauthorized(behavior: ...)` (highest priority)
+2. **Field-level** `on_unauthorized:` option
+3. **Type-level** `on_unauthorized:` option
+4. **Global default** `:error`
+
+### Behavior Values
+
+| Value | Effect |
+|-------|--------|
+| `:error` | Return a GraphQL error (default) |
+| `:return_nil` | Return `null`, query continues |
+
 ## Best Practices
 
 1. **Keep it simple** - Start with basic field lists, add complexity only when needed
@@ -181,15 +255,14 @@ end
 3. **Test thoroughly** - Authorization is critical; test all permission scenarios
 4. **Document expectations** - Comment which roles can access which fields
 5. **Fail closed** - When in doubt, hide fields rather than expose them
+6. **Consider UX** - Use `on_unauthorized: :return_nil` for optional data that shouldn't break the UI
 
 ## Integration with CQL
 
-Authorization integrates seamlessly with the CQL extension. Users can only filter on fields they're authorized to see:
+Authorization integrates seamlessly with CQL. Users can only filter on fields they're authorized to see:
 
 ```elixir
 type "User", struct: MyApp.User do
-  use GreenFairy.Extensions.CQL
-
   authorize fn user, ctx ->
     if ctx[:current_user]?.admin, do: :all, else: [:id, :name]
   end
@@ -201,4 +274,10 @@ type "User", struct: MyApp.User do
 end
 ```
 
-See the [CQL Guide](cql.html) for more details.
+CQL filtering is automatically enabled for all types with a backing struct. See the [CQL Guide](cql.html) for more details.
+
+## Next Steps
+
+- [Relationships](relationships.html) - Define associations between types
+- [Connections](connections.html) - Relay-style pagination
+- [CQL Guide](cql.html) - Automatic filtering and ordering

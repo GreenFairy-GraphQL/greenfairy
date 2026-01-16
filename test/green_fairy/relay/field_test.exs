@@ -33,5 +33,27 @@ defmodule GreenFairy.Relay.FieldTest do
       result = Field.get_type_name(TypeWithoutTypeName, resolution)
       assert result == "MyType"
     end
+
+    test "falls back to module name when resolution has no definition" do
+      # Resolution exists but has no definition
+      resolution = %{definition: nil}
+
+      result = Field.get_type_name(TypeWithoutTypeName, resolution)
+      assert result == "TypeWithoutTypeName"
+    end
+
+    test "falls back to module name when resolution is nil" do
+      result = Field.get_type_name(TypeWithoutTypeName, nil)
+      assert result == "TypeWithoutTypeName"
+    end
+
+    test "extracts last part of deeply nested module name" do
+      defmodule My.Deeply.Nested.ModuleName do
+        # No __green_fairy_type_name__ function
+      end
+
+      result = Field.get_type_name(My.Deeply.Nested.ModuleName, nil)
+      assert result == "ModuleName"
+    end
   end
 end

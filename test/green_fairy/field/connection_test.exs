@@ -126,13 +126,13 @@ defmodule GreenFairy.Field.ConnectionTest do
 
   describe "parse_connection_block/1" do
     test "handles nil" do
-      assert {nil, nil} = Connection.parse_connection_block(nil)
+      assert {nil, nil, nil, nil} = Connection.parse_connection_block(nil)
     end
 
     test "parses block with only edge" do
       block = {:edge, [], [[do: {:field, [], [:extra, :string]}]]}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
 
       assert edge_block == {:field, [], [:extra, :string]}
       assert connection_fields == nil
@@ -146,7 +146,7 @@ defmodule GreenFairy.Field.ConnectionTest do
 
       block = {:__block__, [], statements}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
 
       assert edge_block == {:field, [], [:extra, :string]}
       assert connection_fields == {:__block__, [], [{:field, [], [:total_count, :integer]}]}
@@ -160,7 +160,7 @@ defmodule GreenFairy.Field.ConnectionTest do
 
       block = {:__block__, [], statements}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
 
       assert edge_block == nil
       assert connection_fields == {:__block__, [], statements}
@@ -169,7 +169,7 @@ defmodule GreenFairy.Field.ConnectionTest do
     test "parses single statement that is not edge" do
       single = {:field, [], [:total_count, :integer]}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(single)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(single)
 
       assert edge_block == nil
       assert connection_fields == single
@@ -184,7 +184,7 @@ defmodule GreenFairy.Field.ConnectionTest do
 
       block = {:__block__, [], statements}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
 
       assert edge_block == {:field, [], [:first_extra, :string]}
       assert connection_fields == nil
@@ -197,7 +197,7 @@ defmodule GreenFairy.Field.ConnectionTest do
 
       block = {:__block__, [], statements}
 
-      {edge_block, connection_fields} = Connection.parse_connection_block(block)
+      {edge_block, connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
 
       assert edge_block == {:field, [], [:extra, :string]}
       assert connection_fields == nil
@@ -369,12 +369,24 @@ defmodule GreenFairy.Field.ConnectionTest do
   end
 
   describe "from_query/4" do
+    defmodule MockItem do
+      use Ecto.Schema
+
+      schema "items" do
+        field :value, :string
+      end
+    end
+
     defmodule MockRepo do
       def all(_query), do: [%{id: 1}, %{id: 2}, %{id: 3}]
+      def aggregate(_query, :count, :id), do: 3
     end
 
     test "fetches all items and applies pagination" do
-      assert {:ok, result} = Connection.from_query(:query, MockRepo, %{first: 2})
+      import Ecto.Query
+      query = from(i in MockItem, select: i)
+
+      assert {:ok, result} = Connection.from_query(query, MockRepo, %{first: 2})
 
       assert length(result.edges) == 2
       assert Enum.at(result.edges, 0).node == %{id: 1}
@@ -382,17 +394,214 @@ defmodule GreenFairy.Field.ConnectionTest do
     end
 
     test "works with empty args" do
-      assert {:ok, result} = Connection.from_query(:query, MockRepo, %{})
+      import Ecto.Query
+      query = from(i in MockItem, select: i)
+
+      assert {:ok, result} = Connection.from_query(query, MockRepo, %{})
 
       assert length(result.edges) == 3
     end
 
     test "accepts custom cursor function" do
+      import Ecto.Query
+      query = from(i in MockItem, select: i)
       cursor_fn = fn item, _idx -> "item-#{item.id}" end
 
-      assert {:ok, result} = Connection.from_query(:query, MockRepo, %{}, cursor_fn: cursor_fn)
+      assert {:ok, result} = Connection.from_query(query, MockRepo, %{}, cursor_fn: cursor_fn)
 
       assert Enum.at(result.edges, 0).cursor == "item-1"
+    end
+
+    test "supports deferred loading" do
+      import Ecto.Query
+      query = from(i in MockItem, select: i)
+
+      assert {:ok, result} = Connection.from_query(query, MockRepo, %{}, deferred: true)
+
+      # Deferred mode returns functions for count operations
+      assert is_function(result._total_count_fn, 0)
+      assert is_function(result._exists_fn, 0)
+    end
+  end
+
+  describe "from_list/3 with deferred loading" do
+    test "returns deferred functions when deferred: true" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{}, deferred: true)
+
+      # Should have deferred functions
+      assert is_function(result._total_count_fn, 0)
+      assert is_function(result._exists_fn, 0)
+      assert result._total_count_fn.() == 3
+      assert result._exists_fn.() == true
+    end
+
+    test "returns eager values when deferred: false" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{}, deferred: false)
+
+      # Should have eager values
+      assert result.total_count == 3
+      assert result.exists == true
+    end
+
+    test "defaults to eager loading (no deferred option)" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{})
+
+      # Should have eager values
+      assert result.total_count == 3
+      assert result.exists == true
+    end
+
+    test "accepts custom total_count in eager mode" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{}, total_count: 100)
+
+      assert result.total_count == 100
+    end
+
+    test "accepts custom total_count_fn in deferred mode" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{}, deferred: true, total_count_fn: fn -> 999 end)
+
+      assert result._total_count_fn.() == 999
+    end
+
+    test "accepts custom exists_fn in deferred mode" do
+      items = [1, 2, 3]
+
+      assert {:ok, result} = Connection.from_list(items, %{}, deferred: true, exists_fn: fn -> false end)
+
+      assert result._exists_fn.() == false
+    end
+
+    test "includes nodes list (GitHub-style shortcut)" do
+      items = [%{id: 1}, %{id: 2}, %{id: 3}]
+
+      assert {:ok, result} = Connection.from_list(items, %{})
+
+      assert result.nodes == items
+    end
+
+    test "includes aggregates when provided" do
+      items = [1, 2, 3]
+      aggregates = %{sum: %{amount: 100}}
+
+      assert {:ok, result} = Connection.from_list(items, %{}, aggregates: aggregates)
+
+      assert result.sum == %{amount: 100}
+    end
+  end
+
+  describe "parse_connection_block/1 with resolve and loader" do
+    test "parses block with resolve" do
+      statements = [
+        {:resolve, [], [fn _, _ -> nil end]}
+      ]
+      block = {:__block__, [], statements}
+
+      {_edge_block, _connection_fields, resolver, _aggregates} = Connection.parse_connection_block(block)
+
+      assert {:resolve, [], _} = resolver
+    end
+
+    test "parses single resolve statement" do
+      block = {:resolve, [], [fn _, _ -> nil end]}
+
+      {edge_block, connection_fields, resolver, aggregates} = Connection.parse_connection_block(block)
+
+      assert edge_block == nil
+      assert connection_fields == nil
+      assert {:resolve, [], _} = resolver
+      assert aggregates == nil
+    end
+
+    test "parses single loader statement" do
+      block = {:loader, [], [fn _, _ -> nil end]}
+
+      {edge_block, connection_fields, resolver, aggregates} = Connection.parse_connection_block(block)
+
+      assert edge_block == nil
+      assert connection_fields == nil
+      assert {:loader, [], _} = resolver
+      assert aggregates == nil
+    end
+
+    test "parses block with loader" do
+      statements = [
+        {:loader, [], [fn _, _ -> nil end]}
+      ]
+      block = {:__block__, [], statements}
+
+      {_edge_block, _connection_fields, resolver, _aggregates} = Connection.parse_connection_block(block)
+
+      assert {:loader, [], _} = resolver
+    end
+
+    test "parses block with aggregate" do
+      aggregate_block = {:__block__, [], [{:sum, [], [[:amount]]}]}
+      statements = [
+        {:aggregate, [], [[do: aggregate_block]]}
+      ]
+      block = {:__block__, [], statements}
+
+      {_edge_block, _connection_fields, _resolver, aggregates} = Connection.parse_connection_block(block)
+
+      assert aggregates.sum == [:amount]
+    end
+
+    test "parses edge with opts inside block" do
+      # Edge with opts (second format) - only works inside a block
+      statements = [
+        {:edge, [], [[], [do: {:field, [], [:extra, :string]}]]}
+      ]
+      block = {:__block__, [], statements}
+
+      {edge_block, _connection_fields, _resolver, _aggregates} = Connection.parse_connection_block(block)
+
+      assert edge_block == {:field, [], [:extra, :string]}
+    end
+  end
+
+  describe "generate_connection_types/1" do
+    test "generates edge and connection types" do
+      conn = %{
+        field_name: :friends,
+        type_identifier: :user,
+        connection_name: :friends_connection,
+        edge_name: :friends_edge,
+        edge_block: nil,
+        connection_fields: nil,
+        aggregates: nil
+      }
+
+      types = Connection.generate_connection_types([conn])
+
+      # Should generate 2 types: edge + connection
+      assert length(types) == 2
+    end
+
+    test "generates aggregate types when aggregates present" do
+      conn = %{
+        field_name: :engagements,
+        type_identifier: :engagement,
+        connection_name: :engagements_connection,
+        edge_name: :engagements_edge,
+        edge_block: nil,
+        connection_fields: nil,
+        aggregates: %{sum: [:amount], avg: [], min: [], max: []}
+      }
+
+      types = Connection.generate_connection_types([conn])
+
+      # Should generate edge + connection + aggregate main + aggregate sum
+      assert length(types) >= 3
     end
   end
 end

@@ -1,0 +1,225 @@
+defmodule GreenFairy.CQL.Adapters.MySQLTest do
+  use ExUnit.Case, async: true
+
+  alias GreenFairy.CQL.Adapters.MySQL
+  alias GreenFairy.CQLAdapterTestHelper, as: Helper
+
+  setup do
+    query = Helper.base_query()
+    {:ok, query: query}
+  end
+
+  describe "adapter behavior" do
+    test "implements required callbacks" do
+      Helper.assert_adapter_behavior(MySQL)
+    end
+
+    test "capabilities/0 returns expected capabilities" do
+      capabilities = MySQL.capabilities()
+
+      assert capabilities.array_operators_require_type_cast == false
+      assert capabilities.supports_json_operators == true
+      assert capabilities.supports_full_text_search == true
+      assert capabilities.max_in_clause_items == 1000
+      assert capabilities.native_arrays == false
+      assert capabilities.emulated_ilike == true
+    end
+  end
+
+  describe "supported_operators/2" do
+    test "returns scalar operators" do
+      operators = MySQL.supported_operators(:scalar, :string)
+
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_like in operators
+      assert :_ilike in operators
+      assert :_contains in operators
+      assert :_icontains in operators
+    end
+
+    test "returns limited array operators" do
+      operators = MySQL.supported_operators(:array, :string)
+
+      # MySQL supports these via JSON functions
+      assert :_includes in operators
+      assert :_excludes in operators
+      assert :_includes_any in operators
+      assert :_is_empty in operators
+      assert :_is_null in operators
+
+      # Note: _includes_all not in default support due to MySQL limitations
+    end
+
+    test "returns json operators" do
+      operators = MySQL.supported_operators(:json, :map)
+
+      assert :_contains in operators
+      assert :_has_key in operators
+    end
+  end
+
+  describe "scalar operators" do
+    test "_eq operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_eq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_neq operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_neq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_in operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_in, ["John", "Jane"], [])
+      assert Helper.has_where?(result)
+    end
+
+    test "_nin operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_nin, ["Spam", "Bot"], [])
+      assert Helper.has_where?(result)
+    end
+
+    test "_is_null operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_is_null, true, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "string pattern operators with ILIKE emulation" do
+    test "_ilike uses LOWER() for case-insensitive matching", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_ilike, "%JOHN%", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "LOWER(")
+    end
+
+    test "_nilike uses LOWER() with NOT", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_nilike, "%SPAM%", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "LOWER(")
+      assert Helper.has_fragment?(result, "NOT LIKE")
+    end
+
+    test "_istarts_with uses LOWER()", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_istarts_with, "JO", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "LOWER(")
+    end
+
+    test "_iends_with uses LOWER()", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_iends_with, "HN", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "LOWER(")
+    end
+
+    test "_icontains uses LOWER()", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_icontains, "OH", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "LOWER(")
+    end
+  end
+
+  describe "JSON array operators" do
+    test "_includes uses JSON_CONTAINS", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_includes, "premium", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "JSON_CONTAINS")
+      assert Helper.has_fragment?(result, "JSON_QUOTE")
+    end
+
+    test "_excludes uses NOT JSON_CONTAINS", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_excludes, "spam", [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "NOT JSON_CONTAINS")
+    end
+
+    test "_includes_any uses JSON_OVERLAPS", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_includes_any, ["premium", "verified"], [])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "JSON_OVERLAPS")
+    end
+
+    test "_is_empty with true checks for NULL or zero length", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_is_empty, true, [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "JSON_LENGTH")
+      assert Helper.has_fragment?(result, "IS NULL")
+    end
+
+    test "_is_empty with false checks for length > 0", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_is_empty, false, [field_type: :string])
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "JSON_LENGTH")
+      assert Helper.has_fragment?(result, "> 0")
+    end
+  end
+
+  describe "with bindings" do
+    test "applies operator with binding", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_eq, "John", binding: :user)
+      assert Helper.has_where?(result)
+    end
+
+    test "applies JSON array operator with binding", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_includes, "premium", binding: :post)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "JSON_CONTAINS")
+    end
+  end
+
+  describe "edge cases" do
+    test "handles empty array for _includes_any", %{query: query} do
+      result = MySQL.apply_operator(query, :tags, :_includes_any, [], [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "returns unmodified query for unsupported operator", %{query: query} do
+      result = MySQL.apply_operator(query, :name, :_unsupported_op, "value", [field_type: :string])
+      assert result == query
+    end
+  end
+
+  describe "multiple operators" do
+    test "can chain multiple JSON array operations", %{query: query} do
+      result =
+        query
+        |> MySQL.apply_operator(:tags, :_includes, "premium", [])
+        |> MySQL.apply_operator(:tags, :_excludes, "spam", [])
+
+      assert length(result.wheres) == 2
+      # Both should use JSON functions
+      fragments = Helper.get_all_where_fragments(result)
+      assert Enum.count(fragments, &match?({:fragment, _, _}, &1)) == 2
+    end
+
+    test "can mix scalar and array operators", %{query: query} do
+      result =
+        query
+        |> MySQL.apply_operator(:name, :_ilike, "%john%", [])
+        |> MySQL.apply_operator(:age, :_gte, 18, [])
+        |> MySQL.apply_operator(:tags, :_includes, "premium", [])
+
+      assert length(result.wheres) == 3
+    end
+  end
+
+  describe "MySQL-specific considerations" do
+    test "JSON functions require proper escaping" do
+      # This test verifies that values are properly passed to fragments
+      query = Helper.base_query()
+      result = MySQL.apply_operator(query, :tags, :_includes, "test'value", [field_type: :string])
+
+      assert Helper.has_where?(result)
+      # The fragment should be constructed, value will be bound as parameter
+      assert Helper.has_fragment?(result, "JSON_CONTAINS")
+    end
+
+    test "handles NULL values in JSON arrays correctly" do
+      query = Helper.base_query()
+
+      # NULL check should work even for JSON fields
+      result = MySQL.apply_operator(query, :tags, :_is_null, true, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+end

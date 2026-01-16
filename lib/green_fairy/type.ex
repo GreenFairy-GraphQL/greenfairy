@@ -39,8 +39,8 @@ defmodule GreenFairy.Type do
 
       import GreenFairy.Type, only: [type: 2, type: 3, authorize: 1]
       import GreenFairy.Field.Connection, only: [connection: 2, connection: 3]
-      # loader is only available inside has_many/has_one/belongs_to blocks
-      # field blocks should use resolve for custom logic
+      import GreenFairy.Field.Loader, only: [loader: 1, loader: 4]
+      # assoc is handled via AST transformation, not as a regular macro
 
       Module.register_attribute(__MODULE__, :green_fairy_type, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_fields, accumulate: true)
@@ -49,6 +49,11 @@ defmodule GreenFairy.Type do
       Module.register_attribute(__MODULE__, :green_fairy_policy, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_authorize_fn, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_extensions, accumulate: true)
+      Module.register_attribute(__MODULE__, :green_fairy_referenced_types, accumulate: true)
+      Module.register_attribute(__MODULE__, :cql_custom_filters, accumulate: true)
+
+      # Import CQL macros for custom filters
+      import GreenFairy.CQL.Macros
 
       @before_compile GreenFairy.Type
     end
@@ -154,6 +159,9 @@ defmodule GreenFairy.Type do
   defmacro type(name, opts \\ [], do: block) do
     identifier = GreenFairy.Naming.to_identifier(name)
     env = __CALLER__
+    struct_module_ast = opts[:struct]
+    # Expand the struct module reference to the actual module
+    struct_module = if struct_module_ast, do: Macro.expand(struct_module_ast, env), else: nil
 
     # Extract connection definitions from the block FIRST
     connection_defs = extract_connections(block, env)
@@ -162,7 +170,7 @@ defmodule GreenFairy.Type do
     connection_types = generate_connection_types_ast(connection_defs)
 
     # Transform the block - this removes connection definitions and leaves field references
-    transformed_block = transform_block(block, env)
+    transformed_block = transform_block(block, env, struct_module)
 
     quote do
       @green_fairy_type %{
@@ -170,7 +178,8 @@ defmodule GreenFairy.Type do
         name: unquote(name),
         identifier: unquote(identifier),
         struct: unquote(opts[:struct]),
-        description: unquote(opts[:description])
+        description: unquote(opts[:description]),
+        on_unauthorized: unquote(opts[:on_unauthorized])
       }
 
       # Store connection definitions for introspection
@@ -222,7 +231,7 @@ defmodule GreenFairy.Type do
     connection_name = :"#{field_name}_connection"
     edge_name = :"#{field_name}_edge"
 
-    {edge_block, connection_fields} = GreenFairy.Field.Connection.parse_connection_block(block)
+    {edge_block, connection_fields, _custom_resolver, _aggregates} = GreenFairy.Field.Connection.parse_connection_block(block)
 
     [
       %{
@@ -271,42 +280,43 @@ defmodule GreenFairy.Type do
   end
 
   # Transform our DSL to Absinthe's notation - only handle implements, pass through rest
-  defp transform_block({:__block__, meta, statements}, env) do
-    transformed = Enum.map(statements, &transform_statement(&1, env))
+  defp transform_block({:__block__, meta, statements}, env, struct_module) do
+    transformed = Enum.map(statements, &transform_statement(&1, env, struct_module))
     {:__block__, meta, transformed}
   end
 
-  defp transform_block(statement, env) do
-    transform_statement(statement, env)
+  defp transform_block(statement, env, struct_module) do
+    transform_statement(statement, env, struct_module)
   end
 
-  defp transform_statement({:implements, _meta, [interface_module_ast]}, env) do
+  defp transform_statement({:implements, _meta, [interface_module_ast]}, env, _struct_module) do
     # Expand the module reference to get the actual module
     interface_module = Macro.expand(interface_module_ast, env)
     interface_identifier = interface_module.__green_fairy_identifier__()
 
     quote do
       @green_fairy_interfaces unquote(interface_module)
+      @green_fairy_referenced_types unquote(interface_module)
       Absinthe.Schema.Notation.interface(unquote(interface_identifier))
     end
   end
 
   # Transform authorize declaration - old style with policy module
-  defp transform_statement({:authorize, _meta, [[with: policy_module]]}, _env) do
+  defp transform_statement({:authorize, _meta, [[with: policy_module]]}, _env, _struct_module) do
     quote do
       @green_fairy_policy unquote(policy_module)
     end
   end
 
   # Transform authorize declaration - new style with function
-  defp transform_statement({:authorize, _meta, [func]}, _env) when not is_list(func) do
+  defp transform_statement({:authorize, _meta, [func]}, _env, _struct_module) when not is_list(func) do
     quote do
       @green_fairy_authorize_fn unquote(Macro.escape(func))
     end
   end
 
   # Transform loader macro inside field blocks - converts to batch resolver
-  defp transform_statement({:loader, _meta, [func]}, _env) do
+  defp transform_statement({:loader, _meta, [func]}, _env, _struct_module) do
     quote do
       resolve fn parent, args, %{context: context} ->
         batch_fn = unquote(func)
@@ -322,13 +332,58 @@ defmodule GreenFairy.Type do
     end
   end
 
-  # Transform connection fields - emit only the field reference
-  # The connection types are generated in the type macro before the main object
-  defp transform_statement({:connection, _meta, args}, _env) do
-    {field_name, _type_module_or_opts, _block} = parse_connection_args(args)
-    connection_name = :"#{field_name}_connection"
+  # Transform assoc fields - generate field AST with automatic DataLoader
+  defp transform_statement({:assoc, _meta, [field_name]}, env, struct_module) do
+    # Generate the field AST
+    field_ast = GreenFairy.Field.Association.generate_assoc_field_ast(struct_module, field_name, [], env)
+
+    # Track the type reference for graph discovery
+    type_ref = get_assoc_type_reference(struct_module, field_name)
 
     quote do
+      if unquote(type_ref) do
+        @green_fairy_referenced_types unquote(type_ref)
+      end
+
+      unquote(field_ast)
+    end
+  end
+
+  defp transform_statement({:assoc, _meta, [field_name, opts]}, env, struct_module) do
+    # Generate the field AST
+    field_ast = GreenFairy.Field.Association.generate_assoc_field_ast(struct_module, field_name, opts, env)
+
+    # Track the type reference for graph discovery
+    type_ref = get_assoc_type_reference(struct_module, field_name)
+
+    quote do
+      if unquote(type_ref) do
+        @green_fairy_referenced_types unquote(type_ref)
+      end
+
+      unquote(field_ast)
+    end
+  end
+
+  # Transform connection fields - emit only the field reference
+  # The connection types are generated in the type macro before the main object
+  defp transform_statement({:connection, _meta, args}, _env, _struct_module) do
+    {field_name, type_module_or_opts, _block} = parse_connection_args(args)
+    connection_name = :"#{field_name}_connection"
+
+    # Extract the node type reference for graph discovery
+    type_ref =
+      case type_module_or_opts do
+        opts when is_list(opts) -> opts[:node]
+        module -> module
+      end
+
+    quote do
+      # Track the node type reference
+      if unquote(type_ref) do
+        @green_fairy_referenced_types unquote(type_ref)
+      end
+
       field unquote(field_name), unquote(connection_name) do
         arg :first, :integer
         arg :after, :string
@@ -340,7 +395,7 @@ defmodule GreenFairy.Type do
 
   # Transform use statements for extensions
   # Extensions must implement the GreenFairy.Extension behaviour
-  defp transform_statement({:use, _meta, [module_ast | rest]}, env) do
+  defp transform_statement({:use, _meta, [module_ast | rest]}, env, _struct_module) do
     module = Macro.expand(module_ast, env)
     opts = List.first(rest) || []
 
@@ -359,8 +414,16 @@ defmodule GreenFairy.Type do
   end
 
   # Transform field macro - record field info and pass through to Absinthe
-  defp transform_statement({:field, meta, args}, _env) do
-    {field_name, field_type, opts, has_resolver} = parse_field_args(args)
+  defp transform_statement({:field, meta, args}, env, _struct_module) do
+    {field_name, field_type, opts, has_resolver, block} = parse_field_args(args, env)
+
+    # Validate that field doesn't have both resolve and loader
+    if block do
+      validate_field_resolution(block, field_name, env)
+    end
+
+    # Extract type reference from the original args for graph discovery
+    type_ref = extract_type_reference(args)
 
     field_info = %{
       name: field_name,
@@ -371,57 +434,131 @@ defmodule GreenFairy.Type do
 
     quote do
       @green_fairy_fields unquote(Macro.escape(field_info))
+
+      # Track type reference for graph-based discovery
+      if unquote(type_ref) do
+        @green_fairy_referenced_types unquote(type_ref)
+      end
+
       unquote({:field, meta, args})
     end
   end
 
   # Pass through everything else unchanged - let Absinthe handle it
-  defp transform_statement(other, _env), do: other
+  defp transform_statement(other, _env, _struct_module), do: other
 
-  # Parse field arguments into components
-  defp parse_field_args([name]), do: {name, nil, [], nil}
+  # Extract type reference from field arguments for graph-based discovery
+  # Returns the base type identifier (atom) or nil for built-in scalars
+  defp extract_type_reference([_name]), do: nil
+  defp extract_type_reference([_name, type]) when not is_list(type), do: extract_base_type(type)
+  defp extract_type_reference([_name, opts]) when is_list(opts), do: nil
 
-  defp parse_field_args([name, type]) when not is_list(type) do
-    {base_type, type_opts} = unwrap_type(type)
-    {name, base_type, type_opts, nil}
+  defp extract_type_reference([_name, type, opts]) when is_list(opts) do
+    extract_base_type(type)
   end
 
-  defp parse_field_args([name, opts]) when is_list(opts) do
-    case Keyword.get(opts, :do) do
-      nil -> {name, nil, opts, nil}
-      _block -> {name, nil, [], nil}
+  defp extract_type_reference([_name, type, opts, _block]) when is_list(opts) do
+    extract_base_type(type)
+  end
+
+  defp extract_type_reference(_), do: nil
+
+  # Extract the base type identifier, unwrapping non_null and list_of
+  defp extract_base_type({:non_null, _, [inner_type]}), do: extract_base_type(inner_type)
+  defp extract_base_type({:list_of, _, [inner_type]}), do: extract_base_type(inner_type)
+
+  # Module alias reference (e.g., MyApp.Types.Post)
+  defp extract_base_type({:__aliases__, _, _} = module_ast), do: module_ast
+
+  # Atom type identifier (e.g., :post, :user)
+  defp extract_base_type(type) when is_atom(type) do
+    if builtin_scalar?(type), do: nil, else: type
+  end
+
+  defp extract_base_type(_), do: nil
+
+  # Built-in Absinthe scalar types that shouldn't be tracked
+  @builtin_scalars ~w(
+    id string integer float boolean datetime date time naive_datetime decimal
+  )a
+
+  defp builtin_scalar?(type) when is_atom(type) do
+    type in @builtin_scalars
+  end
+
+  # Get the type identifier for an association field
+  # Returns the type identifier atom (e.g., :post) or nil
+  defp get_assoc_type_reference(struct_module, field_name) when not is_nil(struct_module) do
+    case Code.ensure_compiled(struct_module) do
+      {:module, ^struct_module} ->
+        if function_exported?(struct_module, :__schema__, 2) do
+          case struct_module.__schema__(:association, field_name) do
+            nil ->
+              nil
+
+            %{related: related} ->
+              # Get the type identifier from the related Ecto struct
+              GreenFairy.Field.Association.get_type_identifier(related)
+
+            _ ->
+              nil
+          end
+        else
+          nil
+        end
+
+      _ ->
+        nil
     end
   end
 
-  defp parse_field_args([name, type, opts]) when is_list(opts) do
+  defp get_assoc_type_reference(_struct_module, _field_name), do: nil
+
+  # Parse field arguments into components
+  # Returns: {field_name, field_type, opts, has_resolver, block}
+  defp parse_field_args([name], _env), do: {name, nil, [], nil, nil}
+
+  defp parse_field_args([name, type], _env) when not is_list(type) do
+    {base_type, type_opts} = unwrap_type(type)
+    {name, base_type, type_opts, nil, nil}
+  end
+
+  defp parse_field_args([name, opts], _env) when is_list(opts) do
+    case Keyword.get(opts, :do) do
+      nil -> {name, nil, opts, nil, nil}
+      block -> {name, nil, [], nil, block}
+    end
+  end
+
+  defp parse_field_args([name, type, opts], _env) when is_list(opts) do
     case Keyword.pop(opts, :do) do
       {nil, rest_opts} ->
         {base_type, type_opts} = unwrap_type(type)
-        {name, base_type, Keyword.merge(type_opts, rest_opts), nil}
+        {name, base_type, Keyword.merge(type_opts, rest_opts), nil, nil}
 
       {block, rest_opts} ->
         resolver = has_resolver?(block)
         {base_type, type_opts} = unwrap_type(type)
-        {name, base_type, Keyword.merge(type_opts, rest_opts), resolver}
+        {name, base_type, Keyword.merge(type_opts, rest_opts), resolver, block}
     end
   end
 
-  defp parse_field_args([name, type, opts, block_opts]) when is_list(opts) and is_list(block_opts) do
+  defp parse_field_args([name, type, opts, block_opts], _env) when is_list(opts) and is_list(block_opts) do
     block = Keyword.get(block_opts, :do)
     resolver = has_resolver?(block)
     {base_type, type_opts} = unwrap_type(type)
-    {name, base_type, Keyword.merge(type_opts, opts), resolver}
+    {name, base_type, Keyword.merge(type_opts, opts), resolver, block}
   end
 
-  defp parse_field_args(args) when is_list(args) do
+  defp parse_field_args(args, _env) when is_list(args) do
     # Fallback for any other format
     name = List.first(args)
 
     if length(args) > 1 do
       {base_type, type_opts} = unwrap_type(Enum.at(args, 1))
-      {name, base_type, type_opts, nil}
+      {name, base_type, type_opts, nil, nil}
     else
-      {name, nil, [], nil}
+      {name, nil, [], nil, nil}
     end
   end
 
@@ -444,6 +581,32 @@ defmodule GreenFairy.Type do
   defp has_resolver?({:resolve, _, _}), do: true
   defp has_resolver?({:__block__, _, statements}), do: Enum.any?(statements, &has_resolver?/1)
   defp has_resolver?(_), do: false
+
+  # Check if a block contains a loader statement
+  defp has_loader?({:loader, _, _}), do: true
+  defp has_loader?({:__block__, _, statements}), do: Enum.any?(statements, &has_loader?/1)
+  defp has_loader?(_), do: false
+
+  # Validate that a field doesn't have both resolve and loader
+  defp validate_field_resolution(block, field_name, env) do
+    has_resolve = has_resolver?(block)
+    has_load = has_loader?(block)
+
+    if has_resolve and has_load do
+      raise CompileError,
+        file: env.file,
+        line: env.line,
+        description: """
+        Field :#{field_name} cannot have both `resolve` and `loader`.
+
+        These are mutually exclusive - use one or the other:
+        - Use `resolve` for single-item resolution
+        - Use `loader` for batch loading
+
+        Remove either the `resolve` or `loader` statement.
+        """
+    end
+  end
 
   # Check if a module implements the Extension behaviour
   defp extension_module?(module) when is_atom(module) do
@@ -563,15 +726,33 @@ defmodule GreenFairy.Type do
       end)
       |> Enum.reject(&is_nil/1)
 
+    # Generate CQL support automatically for types with structs
+    # This makes CQL a core feature, not an opt-in extension
+    cql_callback =
+      if type_def[:struct] do
+        GreenFairy.CQL.before_compile(env, extension_config)
+      else
+        nil
+      end
+
     # Generate authorization function based on stored authorize_fn or policy
     authorize_impl = generate_authorize_impl(authorize_fn, policy_def)
 
     quote do
+      # Register this type in the TypeRegistry for graph-based discovery
+      GreenFairy.TypeRegistry.register(
+        unquote(type_def[:identifier]),
+        __MODULE__
+      )
+
       # Register this type with the registry for auto resolve_type
       unquote_splicing(registrations)
 
       # Extension before_compile callbacks
       unquote_splicing(extension_callbacks)
+
+      # CQL support (automatically enabled for types with structs)
+      unquote(cql_callback)
 
       # Authorization implementation
       unquote(authorize_impl)
@@ -614,6 +795,11 @@ defmodule GreenFairy.Type do
       @doc false
       def __green_fairy_extensions__ do
         unquote(Macro.escape(Enum.reverse(extensions_def)))
+      end
+
+      @doc false
+      def __green_fairy_referenced_types__ do
+        unquote(Macro.escape(Module.get_attribute(env.module, :green_fairy_referenced_types) || []))
       end
     end
   end

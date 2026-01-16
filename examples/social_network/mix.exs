@@ -7,10 +7,14 @@ defmodule SocialNetwork.MixProject do
       version: "0.1.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
@@ -25,6 +29,8 @@ defmodule SocialNetwork.MixProject do
       {:absinthe, "~> 1.7"},
       {:absinthe_plug, "~> 1.5"},
       {:absinthe_relay, "~> 1.5"},
+      {:absinthe_phoenix, "~> 2.0"},
+      {:phoenix_pubsub, "~> 2.1"},
       {:dataloader, "~> 2.0"},
       {:ecto_sql, "~> 3.10"},
       {:ecto_sqlite3, "~> 0.12"},

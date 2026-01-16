@@ -1,0 +1,101 @@
+"""
+An object with a globally unique ID
+"""
+interface Node {
+  id: ID!
+}
+
+type User implements Node {
+  id: ID!
+  email: String!
+  username: String!
+  displayName: String
+  bio: String
+  avatarUrl: String
+  posts: [Post!]
+  comments: [Comment!]
+  likes: [Like!]
+  friends: [User!]
+  friendships: [Friendship!]
+  insertedAt: NaiveDateTime!
+  updatedAt: NaiveDateTime!
+}
+
+type Post implements Node {
+  id: ID!
+  body: String!
+  mediaUrl: String
+  visibility: PostVisibility
+  author: User!
+  comments: [Comment!]
+  likes: [Like!]
+  insertedAt: NaiveDateTime!
+  updatedAt: NaiveDateTime!
+}
+
+type Comment implements Node {
+  id: ID!
+  body: String!
+  author: User!
+  post: Post!
+  parent: Comment
+  replies: [Comment!]
+  likes: [Like!]
+  insertedAt: NaiveDateTime!
+  updatedAt: NaiveDateTime!
+}
+
+type Like implements Node {
+  id: ID!
+  user: User!
+  post: Post
+  comment: Comment
+  insertedAt: NaiveDateTime!
+  updatedAt: NaiveDateTime!
+}
+
+type Friendship implements Node {
+  id: ID!
+  status: FriendshipStatus!
+  user: User!
+  friend: User!
+  insertedAt: NaiveDateTime!
+  updatedAt: NaiveDateTime!
+}
+
+enum PostVisibility {
+  PUBLIC
+  FRIENDS
+  PRIVATE
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+"""
+The `Naive DateTime` scalar type represents a naive date and time without
+timezone. The DateTime appears in a JSON response as an ISO8601 formatted
+string.
+"""
+scalar NaiveDateTime
+
+type Query {
+  node(id: ID!): Node
+  viewer: User
+  user(id: ID!): User
+  users: [User!]
+  post(id: ID!): Post
+  posts(visibility: PostVisibility): [Post!]
+}
+
+type Mutation {
+  createUser(email: String!, username: String!, displayName: String): User
+  createPost(body: String!, mediaUrl: String, visibility: PostVisibility): Post
+  createComment(postId: ID!, body: String!, parentId: ID): Comment
+  likePost(postId: ID!): Like
+  sendFriendRequest(friendId: ID!): Friendship
+  acceptFriendRequest(friendshipId: ID!): Friendship
+}

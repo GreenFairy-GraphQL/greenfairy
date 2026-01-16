@@ -4,7 +4,21 @@ defmodule GreenFairy.RegistryTest do
   alias GreenFairy.Registry
 
   setup do
+    # Save current state before clearing
+    original_state = Registry.all()
+
+    # Clear for the test
     Registry.clear()
+
+    # Restore after the test completes
+    on_exit(fn ->
+      Registry.clear()
+
+      Enum.each(original_state, fn {{struct, interface}, identifier} ->
+        Registry.register(struct, identifier, interface)
+      end)
+    end)
+
     :ok
   end
 
@@ -168,6 +182,69 @@ defmodule GreenFairy.RegistryTest do
       {struct, identifier} = hd(implementations)
       assert struct == TestStruct
       assert identifier == :test_type
+    end
+  end
+
+  describe "type_for_struct/1" do
+    test "returns {:ok, identifier} for registered struct" do
+      Registry.register(TestStruct, :test_type, TestInterface)
+
+      assert {:ok, :test_type} = Registry.type_for_struct(TestStruct)
+    end
+
+    test "returns :error for unregistered struct" do
+      defmodule UnregisteredStruct do
+        defstruct [:id]
+      end
+
+      assert :error = Registry.type_for_struct(UnregisteredStruct)
+    end
+
+    test "returns first registration when struct registered with multiple interfaces" do
+      Registry.register(TestStruct, :test_type, TestInterface)
+      Registry.register(TestStruct, :test_type, AnotherInterface)
+
+      # Should still return ok with the type
+      assert {:ok, :test_type} = Registry.type_for_struct(TestStruct)
+    end
+
+    test "type_for_struct returns :error when registry is empty" do
+      Registry.clear()
+
+      defmodule NewStruct do
+        defstruct [:id]
+      end
+
+      assert :error = Registry.type_for_struct(NewStruct)
+    end
+  end
+
+  describe "concurrent stress test" do
+    test "handles many concurrent reads and writes" do
+      # Clear and register initial items
+      Registry.clear()
+      Registry.register(TestStruct, :test_type, TestInterface)
+
+      # Start many tasks that do both reads and writes
+      tasks =
+        for i <- 1..50 do
+          Task.async(fn ->
+            # Read
+            _ = Registry.all()
+            _ = Registry.implementations(TestInterface)
+
+            # Write
+            struct_module = String.to_atom("ConcurrentStruct2_#{i}")
+            Registry.register(struct_module, String.to_atom("type2_#{i}"), TestInterface)
+
+            # Read again
+            Registry.all()
+          end)
+        end
+
+      # All tasks should complete without error
+      results = Enum.map(tasks, &Task.await/1)
+      assert length(results) == 50
     end
   end
 end

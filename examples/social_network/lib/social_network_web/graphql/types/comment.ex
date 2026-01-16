@@ -6,14 +6,21 @@ defmodule SocialNetworkWeb.GraphQL.Types.Comment do
   type "Comment", struct: SocialNetwork.Content.Comment do
     implements Interfaces.Node
 
+    # CQL is automatically enabled for types with structs!
+    # Authorization: all users can see all comment fields
+    authorize fn _comment, _ctx ->
+      :all
+    end
+
     field :id, non_null(:id)
     field :body, non_null(:string)
 
-    field :author, non_null(:user)
-    field :post, non_null(:post)
-    field :parent, :comment
-    field :replies, list_of(:comment)
-    field :likes, list_of(:like)
+    # Association fields - automatically inferred from Ecto schema
+    assoc :author
+    assoc :post
+    assoc :parent
+    assoc :replies
+    assoc :likes
 
     field :inserted_at, non_null(:naive_datetime)
     field :updated_at, non_null(:naive_datetime)

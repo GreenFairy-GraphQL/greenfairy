@@ -2,7 +2,7 @@ defmodule GreenFairy.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/gigsmart/green_fairy"
+  @source_url "https://github.com/GreenFairy-GraphQL/greenfairy"
 
   def project do
     [
@@ -18,7 +18,13 @@ defmodule GreenFairy.MixProject do
       name: "GreenFairy",
       description: "A cleaner DSL for GraphQL schema definitions built on Absinthe",
       source_url: @source_url,
-      test_coverage: [tool: ExCoveralls],
+      test_coverage: [
+        tool: ExCoveralls,
+        ignore_modules: [
+          ~r/^GreenFairy\.Test\./,
+          GreenFairy.CQLAdapterTestHelper
+        ]
+      ],
       test_coverage_options: [
         threshold: 75,
         summary: [threshold: 75],
@@ -45,7 +51,9 @@ defmodule GreenFairy.MixProject do
           GreenFairy.Extensions.Auth.Macros,
           # Relay macros - primarily compile-time
           GreenFairy.Relay.Node,
-          GreenFairy.Relay.Mutation
+          GreenFairy.Relay.Mutation,
+          # Test support helpers - not production code
+          GreenFairy.CQLAdapterTestHelper
         ]
       ],
       preferred_cli_env: [
@@ -78,6 +86,11 @@ defmodule GreenFairy.MixProject do
       {:absinthe, "~> 1.7"},
       {:dataloader, "~> 2.0"},
       {:ecto, "~> 3.10"},
+      {:ecto_sql, "~> 3.10", optional: true},
+      {:postgrex, "~> 0.17", only: :test, optional: true},
+      {:myxql, "~> 0.6", only: :test, optional: true},
+      {:ecto_sqlite3, "~> 0.12", only: :test, optional: true},
+      {:tds, "~> 2.3", only: :test, optional: true},
       {:geo, "~> 3.6", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -100,19 +113,44 @@ defmodule GreenFairy.MixProject do
     [
       main: "readme",
       logo: "assets/logo.svg",
+      cover: "assets/logo.svg",
       extras: [
-        "README.md",
+        {"README.md", [title: "Overview"]},
         "guides/getting-started.md",
         "guides/types.md",
         "guides/authorization.md",
         "guides/relationships.md",
-        "guides/cql.md",
         "guides/connections.md",
-        "guides/operations.md"
+        "guides/operations.md",
+        "guides/relay.md",
+        "guides/global-config.md",
+        "guides/cql.md",
+        "guides/cql_getting_started.md",
+        "guides/cql_adapter_system.md",
+        "guides/cql_advanced_features.md",
+        "guides/cql_query_complexity.md"
       ],
       assets: %{"assets" => "assets"},
       groups_for_extras: [
-        Guides: ~r/guides\/.*/
+        "Getting Started": [
+          "guides/getting-started.md",
+          "guides/global-config.md"
+        ],
+        "Core Concepts": [
+          "guides/types.md",
+          "guides/authorization.md",
+          "guides/relationships.md",
+          "guides/connections.md",
+          "guides/operations.md",
+          "guides/relay.md"
+        ],
+        "CQL (Query Language)": [
+          "guides/cql.md",
+          "guides/cql_getting_started.md",
+          "guides/cql_adapter_system.md",
+          "guides/cql_advanced_features.md",
+          "guides/cql_query_complexity.md"
+        ]
       ],
       groups_for_modules: [
         "Core DSL": [

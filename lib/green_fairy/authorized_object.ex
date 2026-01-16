@@ -21,10 +21,11 @@ defmodule GreenFairy.AuthorizedObject do
   @type t :: %__MODULE__{
           source: struct(),
           visible_fields: [atom()] | nil,
-          all_visible: boolean()
+          all_visible: boolean(),
+          on_unauthorized: :error | :return_nil
         }
 
-  defstruct [:source, :visible_fields, all_visible: false]
+  defstruct [:source, :visible_fields, all_visible: false, on_unauthorized: :error]
 
   @doc """
   Creates an AuthorizedObject from authorization result.
@@ -34,21 +35,26 @@ defmodule GreenFairy.AuthorizedObject do
       AuthorizedObject.new(user, :all)
       AuthorizedObject.new(user, :none)
       AuthorizedObject.new(user, [:id, :name])
+      AuthorizedObject.new(user, :all, on_unauthorized: :return_nil)
 
   """
-  def new(source, :all) do
-    %__MODULE__{source: source, visible_fields: nil, all_visible: true}
+  def new(source, auth_result, opts \\ [])
+
+  def new(source, :all, opts) do
+    on_unauthorized = Keyword.get(opts, :on_unauthorized, :error)
+    %__MODULE__{source: source, visible_fields: nil, all_visible: true, on_unauthorized: on_unauthorized}
   end
 
-  def new(_source, :none) do
+  def new(_source, :none, _opts) do
     nil
   end
 
-  def new(source, visible_fields) when is_list(visible_fields) do
+  def new(source, visible_fields, opts) when is_list(visible_fields) do
+    on_unauthorized = Keyword.get(opts, :on_unauthorized, :error)
     if visible_fields == [] do
       nil
     else
-      %__MODULE__{source: source, visible_fields: visible_fields, all_visible: false}
+      %__MODULE__{source: source, visible_fields: visible_fields, all_visible: false, on_unauthorized: on_unauthorized}
     end
   end
 

@@ -1,7 +1,7 @@
-defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
+defmodule GreenFairy.CQL.OperatorInputTest do
   use ExUnit.Case, async: true
 
-  alias GreenFairy.Extensions.CQL.OperatorInput
+  alias GreenFairy.CQL.Schema.OperatorInput
 
   describe "type_for/1" do
     test "returns operator type for id" do
@@ -19,7 +19,7 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
 
     test "returns operator type for float and decimal" do
       assert OperatorInput.type_for(:float) == :cql_op_float_input
-      assert OperatorInput.type_for(:decimal) == :cql_op_float_input
+      assert OperatorInput.type_for(:decimal) == :cql_op_decimal_input
     end
 
     test "returns operator type for boolean" do
@@ -27,10 +27,10 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
     end
 
     test "returns operator type for datetime types" do
-      assert OperatorInput.type_for(:naive_datetime) == :cql_op_datetime_input
-      assert OperatorInput.type_for(:utc_datetime) == :cql_op_datetime_input
-      assert OperatorInput.type_for(:naive_datetime_usec) == :cql_op_datetime_input
-      assert OperatorInput.type_for(:utc_datetime_usec) == :cql_op_datetime_input
+      assert OperatorInput.type_for(:naive_datetime) == :cql_op_naive_date_time_input
+      assert OperatorInput.type_for(:utc_datetime) == :cql_op_date_time_input
+      assert OperatorInput.type_for(:naive_datetime_usec) == :cql_op_naive_date_time_input
+      assert OperatorInput.type_for(:utc_datetime_usec) == :cql_op_date_time_input
     end
 
     test "returns operator type for date" do
@@ -45,7 +45,8 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
     test "returns nil for complex types" do
       assert OperatorInput.type_for(:map) == nil
       assert OperatorInput.type_for(:array) == nil
-      assert OperatorInput.type_for({:array, :string}) == nil
+      # Array types with inner types now return proper array input types
+      assert OperatorInput.type_for({:array, :string}) == :cql_op_string_array_input
       assert OperatorInput.type_for({:map, :string}) == nil
     end
 
@@ -117,12 +118,13 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
       assert Map.has_key?(types, :cql_op_string_input)
       assert Map.has_key?(types, :cql_op_integer_input)
       assert Map.has_key?(types, :cql_op_float_input)
+      assert Map.has_key?(types, :cql_op_decimal_input)
       assert Map.has_key?(types, :cql_op_boolean_input)
-      assert Map.has_key?(types, :cql_op_datetime_input)
+      assert Map.has_key?(types, :cql_op_date_time_input)
+      assert Map.has_key?(types, :cql_op_naive_date_time_input)
       assert Map.has_key?(types, :cql_op_date_input)
       assert Map.has_key?(types, :cql_op_time_input)
       assert Map.has_key?(types, :cql_op_enum_input)
-      assert Map.has_key?(types, :cql_op_generic_input)
     end
 
     test "each operator type has operators, scalar, and description" do
@@ -135,39 +137,39 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
 
     test "id operators include eq, neq, in, is_nil" do
       {operators, _scalar, _desc} = OperatorInput.operator_types()[:cql_op_id_input]
-      assert :eq in operators
-      assert :neq in operators
-      assert :in in operators
-      assert :is_nil in operators
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_in in operators
+      assert :_is_null in operators
     end
 
     test "string operators include text operations" do
       {operators, _scalar, _desc} = OperatorInput.operator_types()[:cql_op_string_input]
-      assert :eq in operators
-      assert :neq in operators
-      assert :contains in operators
-      assert :starts_with in operators
-      assert :ends_with in operators
-      assert :in in operators
-      assert :is_nil in operators
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_contains in operators
+      assert :_starts_with in operators
+      assert :_ends_with in operators
+      assert :_in in operators
+      assert :_is_null in operators
     end
 
     test "integer operators include comparison operations" do
       {operators, _scalar, _desc} = OperatorInput.operator_types()[:cql_op_integer_input]
-      assert :eq in operators
-      assert :neq in operators
-      assert :gt in operators
-      assert :gte in operators
-      assert :lt in operators
-      assert :lte in operators
-      assert :in in operators
-      assert :is_nil in operators
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_gt in operators
+      assert :_gte in operators
+      assert :_lt in operators
+      assert :_lte in operators
+      assert :_in in operators
+      assert :_is_null in operators
     end
 
     test "boolean operators are limited" do
       {operators, _scalar, _desc} = OperatorInput.operator_types()[:cql_op_boolean_input]
-      assert :eq in operators
-      assert :is_nil in operators
+      assert :_eq in operators
+      assert :_is_null in operators
       refute :gt in operators
       refute :contains in operators
     end
@@ -175,15 +177,17 @@ defmodule GreenFairy.Extensions.CQL.OperatorInputTest do
 
   describe "generate_all/0" do
     test "returns list of AST for all operator types" do
-      ast_list = OperatorInput.generate_all()
+      alias GreenFairy.CQL.Adapters.Postgres
+      ast_list = OperatorInput.generate_all(adapter: Postgres)
 
       assert is_list(ast_list)
-      # Number of operator types
-      assert length(ast_list) == 10
+      # PostgreSQL has many operator types including arrays
+      assert length(ast_list) > 10
     end
 
     test "each generated AST is valid quoted expression" do
-      for ast <- OperatorInput.generate_all() do
+      alias GreenFairy.CQL.Adapters.Postgres
+      for ast <- OperatorInput.generate_all(adapter: Postgres) do
         assert is_tuple(ast)
         assert elem(ast, 0) == :__block__
       end

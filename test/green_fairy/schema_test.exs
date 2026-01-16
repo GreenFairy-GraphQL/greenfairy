@@ -63,7 +63,7 @@ defmodule GreenFairy.SchemaTest do
 
   describe "Schema with inline roots" do
     defmodule InlineRootSchema do
-      use GreenFairy.Schema, discover: []
+      use GreenFairy.Schema
 
       root_query do
         field :inline_ping, :string do
@@ -99,7 +99,7 @@ defmodule GreenFairy.SchemaTest do
 
   describe "Schema with inline subscription" do
     defmodule InlineSubscriptionSchema do
-      use GreenFairy.Schema, discover: []
+      use GreenFairy.Schema
 
       root_query do
         field :sub_ping, :string do
@@ -126,9 +126,9 @@ defmodule GreenFairy.SchemaTest do
     end
   end
 
-  describe "Schema with empty discovery" do
+  describe "Schema without explicit types" do
     defmodule EmptyDiscoverySchema do
-      use GreenFairy.Schema, discover: [NonExistent.Namespace]
+      use GreenFairy.Schema
 
       root_query do
         field :empty_ping, :string do
@@ -140,6 +140,20 @@ defmodule GreenFairy.SchemaTest do
     test "schema with empty discovery compiles" do
       assert {:ok, %{data: %{"emptyPing" => "empty_pong"}}} =
                Absinthe.run("{ emptyPing }", EmptyDiscoverySchema)
+    end
+  end
+
+  describe "resolve_type_for/2 additional edge cases" do
+    test "returns nil for tuple value" do
+      assert nil == GreenFairy.Schema.resolve_type_for({:ok, "value"}, %{TestStruct => :test_type})
+    end
+
+    test "returns nil for list value" do
+      assert nil == GreenFairy.Schema.resolve_type_for([1, 2, 3], %{TestStruct => :test_type})
+    end
+
+    test "returns nil for atom value" do
+      assert nil == GreenFairy.Schema.resolve_type_for(:some_atom, %{TestStruct => :test_type})
     end
   end
 end

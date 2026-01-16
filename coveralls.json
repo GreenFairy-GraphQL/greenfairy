@@ -1,14 +1,12 @@
 {
-  "coverage_options": {
-    "minimum_coverage": 75,
-    "treat_no_relevant_lines_as_covered": true
-  },
   "skip_files": [
+    "test/support/",
     "lib/mix/tasks/",
-    "lib/green_fairy/deferred/definition/",
-    "lib/green_fairy/deferred/schema.ex",
-    "lib/green_fairy/extensions/auth/macros.ex",
-    "lib/green_fairy/relay/node.ex",
-    "lib/green_fairy/relay/mutation.ex"
-  ]
+    "lib/green_fairy/relay/mutation.ex",
+    "lib/green_fairy/relay/node.ex"
+  ],
+  "coverage_options": {
+    "minimum_coverage": 85,
+    "treat_no_relevant_lines_as_covered": true
+  }
 }

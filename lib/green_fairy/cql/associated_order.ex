@@ -47,7 +47,7 @@ defmodule GreenFairy.CQL.AssociatedOrder do
   ]
 
   @type t :: %__MODULE__{
-          association: Ecto.Association.t() | nil,
+          association: term() | nil,
           parent_field: atom(),
           order_term: OrderOperator.t() | t(),
           list_module: module() | nil,

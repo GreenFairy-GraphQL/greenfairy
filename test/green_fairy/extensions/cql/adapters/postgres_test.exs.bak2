@@ -1,0 +1,287 @@
+defmodule GreenFairy.CQL.Adapters.PostgresTest do
+  use ExUnit.Case, async: true
+
+  alias GreenFairy.CQL.Adapters.Postgres
+  alias GreenFairy.CQLAdapterTestHelper, as: Helper
+
+  setup do
+    query = Helper.base_query()
+    {:ok, query: query}
+  end
+
+  describe "adapter behavior" do
+    test "implements required callbacks" do
+      Helper.assert_adapter_behavior(Postgres)
+    end
+
+    test "capabilities/0 returns expected capabilities" do
+      capabilities = Postgres.capabilities()
+
+      assert capabilities.array_operators_require_type_cast == true
+      assert capabilities.supports_json_operators == true
+      assert capabilities.supports_full_text_search == true
+      assert capabilities.max_in_clause_items == 10000
+      assert capabilities.native_arrays == true
+    end
+  end
+
+  describe "supported_operators/2" do
+    test "returns all scalar operators" do
+      operators = Postgres.supported_operators(:scalar, :string)
+
+      assert :_eq in operators
+      assert :_neq in operators
+      assert :_gt in operators
+      assert :_gte in operators
+      assert :_lt in operators
+      assert :_lte in operators
+      assert :_in in operators
+      assert :_nin in operators
+      assert :_is_null in operators
+      assert :_like in operators
+      assert :_nlike in operators
+      assert :_ilike in operators
+      assert :_nilike in operators
+    end
+
+    test "returns array operators" do
+      operators = Postgres.supported_operators(:array, :string)
+
+      assert :_includes in operators
+      assert :_excludes in operators
+      assert :_includes_all in operators
+      assert :_includes_any in operators
+      assert :_is_empty in operators
+      assert :_is_null in operators
+    end
+
+    test "returns json operators" do
+      operators = Postgres.supported_operators(:json, :map)
+
+      assert :_contains in operators
+      assert :_has_key in operators
+      assert :_nested in operators
+    end
+  end
+
+  describe "scalar operators" do
+    test "_eq operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_eq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_neq operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_neq, "John", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_gt operator with integer", %{query: query} do
+      result = Postgres.apply_operator(query, :age, :_gt, 18, [field_type: :integer])
+      assert Helper.has_where?(result)
+    end
+
+    test "_gte operator", %{query: query} do
+      result = Postgres.apply_operator(query, :age, :_gte, 18, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_lt operator", %{query: query} do
+      result = Postgres.apply_operator(query, :age, :_lt, 65, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_lte operator", %{query: query} do
+      result = Postgres.apply_operator(query, :age, :_lte, 65, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_in operator with list", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_in, ["John", "Jane"], [])
+      assert Helper.has_where?(result)
+    end
+
+    test "_nin operator with list", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_nin, ["Spam", "Bot"], [])
+      assert Helper.has_where?(result)
+    end
+
+    test "_is_null with true", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_is_null, true, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_is_null with false", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_is_null, false, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "string pattern operators" do
+    test "_like operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_like, "%john%", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_nlike operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_nlike, "%spam%", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_ilike operator for case-insensitive search", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_ilike, "%JOHN%", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_nilike operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_nilike, "%SPAM%", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_starts_with operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_starts_with, "Jo", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_istarts_with operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_istarts_with, "JO", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_ends_with operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_ends_with, "hn", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_iends_with operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_iends_with, "HN", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_contains operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_contains, "oh", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "_icontains operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_icontains, "OH", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "array operators" do
+    test "_includes operator with string value", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_includes, "premium", binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "= ANY(")
+    end
+
+    test "_excludes operator", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_excludes, "spam", binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "!= ALL(")
+    end
+
+    test "_includes_all operator with string array", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_includes_all, ["premium", "verified"], binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "@>")
+      assert Helper.has_fragment?(result, "text[]")
+    end
+
+    test "_includes_all operator with integer array", %{query: query} do
+      result = Postgres.apply_operator(query, :role_ids, :_includes_all, [1, 2, 3], binding: nil, field_type: :integer)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "@>")
+      assert Helper.has_fragment?(result, "integer[]")
+    end
+
+    test "_includes_any operator", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_includes_any, ["premium", "verified"], binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "&&")
+    end
+
+    test "_is_empty with true", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_is_empty, true, binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "array_length")
+    end
+
+    test "_is_empty with false", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_is_empty, false, binding: nil, field_type: :string)
+      assert Helper.has_where?(result)
+      assert Helper.has_fragment?(result, "array_length")
+    end
+  end
+
+  describe "with bindings" do
+    test "applies operator with binding", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_eq, "John", binding: :user)
+      assert Helper.has_where?(result)
+    end
+
+    test "applies array operator with binding", %{query: query} do
+      result = Postgres.apply_operator(query, :tags, :_includes, "premium", binding: :post, field_type: :string)
+      assert Helper.has_where?(result)
+    end
+  end
+
+  describe "edge cases" do
+    test "handles nil values appropriately", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_eq, nil, [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "handles empty array for _in operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_in, [], [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "handles empty string pattern", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_like, "", [field_type: :string])
+      assert Helper.has_where?(result)
+    end
+
+    test "returns unmodified query for unsupported operator", %{query: query} do
+      result = Postgres.apply_operator(query, :name, :_unsupported_op, "value", [field_type: :string])
+      assert result == query
+    end
+  end
+
+  describe "multiple operators" do
+    test "can chain multiple operators on same field", %{query: query} do
+      result =
+        query
+        |> Postgres.apply_operator(:age, :_gte, 18, [])
+        |> Postgres.apply_operator(:age, :_lte, 65, [])
+
+      assert length(result.wheres) == 2
+    end
+
+    test "can apply operators on different fields", %{query: query} do
+      result =
+        query
+        |> Postgres.apply_operator(:name, :_like, "%john%", [])
+        |> Postgres.apply_operator(:age, :_gte, 18, [])
+        |> Postgres.apply_operator(:active, :_eq, true, [])
+
+      assert length(result.wheres) == 3
+    end
+  end
+
+  describe "type casting" do
+    test "get_array_cast_type returns correct type for common types" do
+      assert Postgres.get_array_cast_type(:string) == "text"
+      assert Postgres.get_array_cast_type(:integer) == "integer"
+      assert Postgres.get_array_cast_type(:id) == "bigint"
+      assert Postgres.get_array_cast_type(:boolean) == "boolean"
+      assert Postgres.get_array_cast_type(:date) == "date"
+      assert Postgres.get_array_cast_type(:datetime) == "timestamp"
+    end
+
+    test "get_array_cast_type returns text for unknown types" do
+      assert Postgres.get_array_cast_type(:unknown_type) == "text"
+      assert Postgres.get_array_cast_type(:custom) == "text"
+    end
+  end
+end

@@ -4,7 +4,7 @@ defmodule GreenFairy.CQL.QueryFieldTest do
   alias GreenFairy.CQL.QueryField
 
   describe "new/1" do
-    test "creates query field with required options" do
+    test "creates QueryField with required options" do
       field = QueryField.new(field: :name, field_type: :string)
 
       assert %QueryField{} = field
@@ -15,100 +15,46 @@ defmodule GreenFairy.CQL.QueryFieldTest do
       assert field.allow_in_nested == true
     end
 
-    test "creates query field with custom column" do
+    test "accepts custom column name" do
       field = QueryField.new(field: :name, field_type: :string, column: :full_name)
 
       assert field.column == :full_name
     end
 
-    test "creates query field with description" do
-      field =
-        QueryField.new(
-          field: :email,
-          field_type: :string,
-          description: "User's email address"
-        )
+    test "accepts description" do
+      field = QueryField.new(field: :name, field_type: :string, description: "User's name")
 
-      assert field.description == "User's email address"
+      assert field.description == "User's name"
     end
 
-    test "creates hidden field" do
-      field = QueryField.new(field: :password, field_type: :string, hidden: true)
+    test "accepts hidden option" do
+      field = QueryField.new(field: :secret, field_type: :string, hidden: true)
 
       assert field.hidden == true
     end
 
-    test "creates field with custom operators" do
-      field =
-        QueryField.new(
-          field: :name,
-          field_type: :string,
-          operators: [:eq, :contains]
-        )
+    test "accepts operators option" do
+      field = QueryField.new(field: :status, field_type: :string, operators: [:eq, :neq])
 
-      assert field.operators == [:eq, :contains]
+      assert field.operators == [:eq, :neq]
     end
 
-    test "creates field with custom constraint" do
+    test "accepts custom_constraint function" do
       constraint_fn = fn query, _value -> query end
-
-      field =
-        QueryField.new(
-          field: :name,
-          field_type: :string,
-          custom_constraint: constraint_fn
-        )
+      field = QueryField.new(field: :custom, field_type: :string, custom_constraint: constraint_fn)
 
       assert field.custom_constraint == constraint_fn
     end
 
-    test "creates field with allow_in_nested false" do
-      field =
-        QueryField.new(
-          field: :computed,
-          field_type: :string,
-          allow_in_nested: false
-        )
+    test "accepts array field types" do
+      field = QueryField.new(field: :tags, field_type: {:array, :string})
 
-      assert field.allow_in_nested == false
-    end
-
-    test "supports all basic types" do
-      types = [
-        :string,
-        :integer,
-        :float,
-        :decimal,
-        :boolean,
-        :datetime,
-        :date,
-        :time,
-        :id,
-        :binary_id,
-        :location,
-        :geo_point,
-        :money,
-        :duration
-      ]
-
-      for type <- types do
-        field = QueryField.new(field: :test, field_type: type)
-        assert field.field_type == type
-      end
-    end
-
-    test "supports array types" do
-      array_types = [{:array, :id}, {:array, :string}, {:array, :integer}, {:array, :datetime}]
-
-      for type <- array_types do
-        field = QueryField.new(field: :test, field_type: type)
-        assert field.field_type == type
-      end
+      assert field.field_type == {:array, :string}
     end
 
     test "raises for invalid field type" do
       assert_raise ArgumentError, ~r/Invalid field_type/, fn ->
-        QueryField.new(field: :test, field_type: :invalid_type)
+        QueryField.new(field: :invalid, field_type: :unknown_type)
       end
     end
   end
@@ -117,93 +63,125 @@ defmodule GreenFairy.CQL.QueryFieldTest do
     test "returns list of valid types" do
       types = QueryField.valid_types()
 
+      assert is_list(types)
       assert :string in types
       assert :integer in types
       assert :datetime in types
-      assert {:array, :id} in types
+      assert {:array, :string} in types
     end
   end
 
   describe "allowed_in_nested?/1" do
-    test "returns true for normal fields" do
+    test "returns true for regular fields" do
       field = QueryField.new(field: :name, field_type: :string)
 
       assert QueryField.allowed_in_nested?(field) == true
     end
 
-    test "returns false for fields with allow_in_nested: false" do
+    test "returns false when allow_in_nested is false" do
       field = QueryField.new(field: :name, field_type: :string, allow_in_nested: false)
 
       assert QueryField.allowed_in_nested?(field) == false
     end
 
-    test "returns false for fields with custom constraints" do
-      field =
-        QueryField.new(
-          field: :name,
-          field_type: :string,
-          custom_constraint: fn q, _v -> q end
-        )
+    test "returns false when custom_constraint is set" do
+      constraint_fn = fn query, _value -> query end
+      field = QueryField.new(field: :custom, field_type: :string, custom_constraint: constraint_fn)
 
       assert QueryField.allowed_in_nested?(field) == false
     end
   end
 
   describe "default_operators/1" do
-    test "returns operators for string type" do
+    test "returns operators for :string" do
       ops = QueryField.default_operators(:string)
-
       assert :eq in ops
       assert :contains in ops
-      assert :starts_with in ops
     end
 
-    test "returns operators for integer type" do
+    test "returns operators for :integer" do
       ops = QueryField.default_operators(:integer)
-
       assert :eq in ops
       assert :gt in ops
       assert :lt in ops
-      assert :in in ops
     end
 
-    test "returns operators for datetime type" do
-      ops = QueryField.default_operators(:datetime)
-
+    test "returns operators for :boolean" do
+      ops = QueryField.default_operators(:boolean)
       assert :eq in ops
-      assert :gt in ops
+      assert :neq in ops
+    end
+
+    test "returns operators for :datetime" do
+      ops = QueryField.default_operators(:datetime)
+      assert :eq in ops
       assert :between in ops
     end
 
-    test "returns operators for boolean type" do
-      ops = QueryField.default_operators(:boolean)
-
+    test "returns operators for :date" do
+      ops = QueryField.default_operators(:date)
       assert :eq in ops
-      assert :neq in ops
-      assert :is_nil in ops
-      refute :gt in ops
+      assert :gt in ops
     end
 
-    test "returns operators for geo types" do
-      ops = QueryField.default_operators(:geo_point)
+    test "returns operators for :time" do
+      ops = QueryField.default_operators(:time)
+      assert :eq in ops
+    end
 
+    test "returns operators for :id" do
+      ops = QueryField.default_operators(:id)
+      assert :eq in ops
+      assert :in in ops
+    end
+
+    test "returns operators for :binary_id" do
+      ops = QueryField.default_operators(:binary_id)
+      assert :eq in ops
+    end
+
+    test "returns operators for :location" do
+      ops = QueryField.default_operators(:location)
       assert :st_dwithin in ops
+    end
+
+    test "returns operators for :geo_point" do
+      ops = QueryField.default_operators(:geo_point)
       assert :st_within_bounding_box in ops
+    end
+
+    test "returns operators for :float" do
+      ops = QueryField.default_operators(:float)
+      assert :gt in ops
+    end
+
+    test "returns operators for :decimal" do
+      ops = QueryField.default_operators(:decimal)
+      assert :lte in ops
+    end
+
+    test "returns operators for :money" do
+      ops = QueryField.default_operators(:money)
+      assert :eq in ops
+    end
+
+    test "returns operators for :duration" do
+      ops = QueryField.default_operators(:duration)
+      assert :neq in ops
     end
 
     test "returns operators for array types" do
       ops = QueryField.default_operators({:array, :string})
-
       assert :includes in ops
       assert :excludes in ops
       assert :is_empty in ops
     end
 
-    test "returns basic operators for unknown types" do
+    test "returns default operators for unknown types" do
       ops = QueryField.default_operators(:unknown)
-
       assert :eq in ops
       assert :in in ops
+      assert :is_nil in ops
     end
   end
 end

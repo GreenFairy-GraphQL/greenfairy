@@ -285,4 +285,39 @@ defmodule GreenFairy.ScalarTest do
       assert type.description == "A monetary value in cents"
     end
   end
+
+  describe "CQL input type" do
+    defmodule ScalarWithCqlInput do
+      use GreenFairy.Scalar
+
+      scalar "CustomScalar" do
+        operators([:eq, :neq])
+
+        cql_input "CqlOpCustomScalarInput" do
+          field :_eq, :string
+          field :_neq, :string
+          field :_is_null, :boolean
+        end
+
+        parse fn _ -> :error end
+        serialize fn v -> v end
+      end
+    end
+
+    test "defines __has_cql_input__ as true when cql_input defined" do
+      assert ScalarWithCqlInput.__has_cql_input__() == true
+    end
+
+    test "defines __cql_input_identifier__" do
+      assert ScalarWithCqlInput.__cql_input_identifier__() == :cql_op_custom_scalar_input
+    end
+
+    test "no cql input returns nil for identifier" do
+      assert NoOpScalar.__cql_input_identifier__() == nil
+    end
+
+    test "no cql input returns false for has_cql_input" do
+      assert NoOpScalar.__has_cql_input__() == false
+    end
+  end
 end

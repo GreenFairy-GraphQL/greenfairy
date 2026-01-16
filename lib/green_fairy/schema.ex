@@ -1,36 +1,27 @@
 defmodule GreenFairy.Schema do
   @moduledoc """
-  Schema assembly with auto-discovery of types.
+  Schema assembly with graph-based type discovery.
 
-  Automatically discovers and imports all types, and generates
-  query/mutation/subscription root types.
+  Automatically discovers types by walking the type graph from your root
+  query/mutation/subscription modules.
 
-  ## Basic Usage (Auto-Discovery)
-
-      defmodule MyApp.GraphQL.Schema do
-        use GreenFairy.Schema,
-          discover: [MyApp.GraphQL]
-      end
-
-  ## Explicit Root Types
-
-  You can explicitly specify root type modules:
+  ## Basic Usage
 
       defmodule MyApp.GraphQL.Schema do
         use GreenFairy.Schema,
-          discover: [MyApp.GraphQL],
           query: MyApp.GraphQL.RootQuery,
           mutation: MyApp.GraphQL.RootMutation,
           subscription: MyApp.GraphQL.RootSubscription
       end
+
+  The schema will automatically discover all types reachable from your roots.
 
   ## Inline Root Definitions
 
   Or define roots inline:
 
       defmodule MyApp.GraphQL.Schema do
-        use GreenFairy.Schema,
-          discover: [MyApp.GraphQL]
+        use GreenFairy.Schema
 
         root_query do
           field :health, :string do
@@ -47,24 +38,40 @@ defmodule GreenFairy.Schema do
 
   ## Options
 
-  - `:discover` - List of namespaces to scan for type modules
   - `:query` - Module to use as root query (or use `root_query` macro)
   - `:mutation` - Module to use as root mutation (or use `root_mutation` macro)
   - `:subscription` - Module to use as root subscription (or use `root_subscription` macro)
   - `:dataloader` - DataLoader configuration
     - `:sources` - List of `{source_name, repo_or_source}` tuples
 
+  ## Type Discovery
+
+  Types are discovered by walking the graph from your root modules:
+  1. Start at Query/Mutation/Subscription modules
+  2. Extract type references from field definitions
+  3. Recursively follow references to discover all reachable types
+  4. Only import types actually used in your schema
+
+  This means:
+  - Types can live anywhere in your codebase
+  - Unused types are not imported
+  - Clear dependency graph
+  - Supports circular references
+
   """
 
   @doc false
   defmacro __using__(opts) do
-    namespaces = Keyword.get(opts, :discover, [])
     dataloader_opts = Keyword.get(opts, :dataloader, [])
+    repo_ast = Keyword.get(opts, :repo)
+    cql_adapter_ast = Keyword.get(opts, :cql_adapter)
     query_module_ast = Keyword.get(opts, :query)
     mutation_module_ast = Keyword.get(opts, :mutation)
     subscription_module_ast = Keyword.get(opts, :subscription)
 
     # Expand module aliases to actual atoms
+    repo = if repo_ast, do: Macro.expand(repo_ast, __CALLER__), else: nil
+    cql_adapter = if cql_adapter_ast, do: Macro.expand(cql_adapter_ast, __CALLER__), else: nil
     query_module = if query_module_ast, do: Macro.expand(query_module_ast, __CALLER__), else: nil
     mutation_module = if mutation_module_ast, do: Macro.expand(mutation_module_ast, __CALLER__), else: nil
     subscription_module = if subscription_module_ast, do: Macro.expand(subscription_module_ast, __CALLER__), else: nil
@@ -78,8 +85,9 @@ defmodule GreenFairy.Schema do
 
     quote do
       # Store configuration FIRST for use in callbacks
-      @green_fairy_namespaces unquote(namespaces)
       @green_fairy_dataloader unquote(Macro.escape(dataloader_opts))
+      @green_fairy_repo unquote(repo)
+      @green_fairy_cql_adapter unquote(cql_adapter)
       @green_fairy_query_module unquote(query_module)
       @green_fairy_mutation_module unquote(mutation_module)
       @green_fairy_subscription_module unquote(subscription_module)
@@ -97,6 +105,8 @@ defmodule GreenFairy.Schema do
 
       # Import built-in types
       import_types GreenFairy.BuiltIns.PageInfo
+      import_types GreenFairy.BuiltIns.UnauthorizedBehavior
+      import_types GreenFairy.BuiltIns.OnUnauthorizedDirective
 
       # Import explicit root modules (must happen before query/mutation/subscription blocks)
       unquote_splicing(explicit_imports)
@@ -207,7 +217,6 @@ defmodule GreenFairy.Schema do
 
   @doc false
   defmacro __before_compile__(env) do
-    namespaces = Module.get_attribute(env.module, :green_fairy_namespaces)
     dataloader_opts = Module.get_attribute(env.module, :green_fairy_dataloader)
 
     # Get explicit module configurations
@@ -220,8 +229,11 @@ defmodule GreenFairy.Schema do
     inline_mutation = Module.get_attribute(env.module, :green_fairy_inline_mutation)
     inline_subscription = Module.get_attribute(env.module, :green_fairy_inline_subscription)
 
-    # Discover all type modules at compile time
-    discovered = discover_at_compile_time(namespaces)
+    # Graph-based discovery from explicit roots
+    root_modules = [query_module, mutation_module, subscription_module]
+      |> Enum.reject(&is_nil/1)
+
+    discovered = discover_via_graph(root_modules)
     grouped = GreenFairy.Discovery.group_by_kind(discovered)
 
     # Generate import_types for all discovered modules
@@ -362,25 +374,65 @@ defmodule GreenFairy.Schema do
     end
   end
 
-  # Discover modules at compile time by walking the namespace
-  defp discover_at_compile_time(namespaces) when is_list(namespaces) do
-    Enum.flat_map(namespaces, &discover_namespace_compile/1)
+  # Discover types by walking the type graph from root modules
+  defp discover_via_graph(root_modules) do
+    walk_type_graph(root_modules, MapSet.new())
+    |> MapSet.to_list()
   end
 
-  defp discover_namespace_compile(namespace) when is_atom(namespace) do
-    # Get all compiled modules that match the namespace
-    # This works because we're in a @before_compile callback
-    :code.all_loaded()
-    |> Enum.map(fn {module, _} -> module end)
-    |> Enum.filter(fn module ->
-      module_string = Atom.to_string(module)
-      namespace_string = Atom.to_string(namespace)
-      String.starts_with?(module_string, namespace_string)
-    end)
-    |> Enum.filter(fn module ->
-      function_exported?(module, :__green_fairy_definition__, 0)
-    end)
+  # Walk the type graph recursively, collecting all reachable types
+  defp walk_type_graph([], visited), do: visited
+
+  defp walk_type_graph([module | rest], visited) when is_atom(module) do
+    if MapSet.member?(visited, module) do
+      # Already visited, skip
+      walk_type_graph(rest, visited)
+    else
+      # Mark as visited
+      visited = MapSet.put(visited, module)
+
+      # Get referenced types from this module
+      referenced =
+        if function_exported?(module, :__green_fairy_referenced_types__, 0) do
+          module.__green_fairy_referenced_types__()
+          |> Enum.map(&resolve_type_reference/1)
+          |> Enum.reject(&is_nil/1)
+        else
+          []
+        end
+
+      # Recursively walk referenced types
+      walk_type_graph(referenced ++ rest, visited)
+    end
   end
+
+  # Skip non-module references
+  defp walk_type_graph([_non_module | rest], visited) do
+    walk_type_graph(rest, visited)
+  end
+
+  # Resolve a type reference to a module
+  # Handles both atom identifiers (:user) and module references (MyApp.Types.User)
+  defp resolve_type_reference(ref) when is_atom(ref) do
+    # Check if it's already a module with __green_fairy_definition__
+    if Code.ensure_loaded?(ref) and function_exported?(ref, :__green_fairy_definition__, 0) do
+      ref
+    else
+      # It's a type identifier, look it up in the registry
+      GreenFairy.TypeRegistry.lookup_module(ref)
+    end
+  end
+
+  # Module alias AST - expand to module atom
+  defp resolve_type_reference({:__aliases__, _, _} = module_ast) do
+    try do
+      Macro.expand(module_ast, __ENV__)
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp resolve_type_reference(_), do: nil
 
   defp generate_imports(grouped) do
     all_modules =

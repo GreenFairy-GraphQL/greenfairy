@@ -52,29 +52,67 @@ defmodule GreenFairy.Field.Loader do
   @doc """
   Defines a custom batch loader for relationship fields.
 
-  The function receives a list of parent objects and should return
+  The loader receives a list of parent objects and should return
   a map of `parent => result` or a list in the same order as parents.
 
-  ## Examples
+  ## Inline Block Syntax (Recommended)
+
+      field :friends, list_of(:user) do
+        loader users, args, context do
+          ids = Enum.map(users, & &1.id)
+
+          Model.UserFriends
+          |> where([uf], uf.left_id in ^ids or uf.right_id in ^ids)
+          |> Repo.all()
+          |> Enum.group_by(fn friendship ->
+            Enum.find(users, &(&1.id == friendship.left_id or &1.id == friendship.right_id))
+          end)
+        end
+      end
+
+  ## Function Syntax
 
       field :posts, list_of(:post) do
         loader fn users, args, ctx ->
-          # Return map of user => posts
           MyApp.Posts.batch_load_for_users(users, args)
         end
       end
 
-      field :nearby_gigs, list_of(:gig) do
-        arg :location, non_null(:point)  # Uses Geo.Point scalar
+  ## Cross-Adapter Loading
 
-        loader fn workers, args, _ctx ->
-          workers
-          |> Enum.map(&{&1, MyApp.Gigs.find_nearby(&1.id, args.location)})
-          |> Map.new()
+      field :search_results, list_of(:result) do
+        arg :query, non_null(:string)
+
+        loader items, args, _ctx do
+          # Load from Elasticsearch based on parent items
+          ids = Enum.map(items, & &1.id)
+          MyApp.Search.batch_search(ids, args.query)
         end
       end
 
   """
+  # Inline block syntax: loader parents_var, args_var, context_var do ... end
+  defmacro loader(parents_var, args_var, context_var, do: block) do
+    quote do
+      resolve fn parent, args, %{context: context} ->
+        # Create an anonymous function from the inline block
+        batch_fn = fn unquote(parents_var), unquote(args_var), unquote(context_var) ->
+          unquote(block)
+        end
+
+        # Use Absinthe's batch helper for proper batching
+        Absinthe.Resolution.Helpers.batch(
+          {GreenFairy.Field.Loader, :__batch_loader__, [batch_fn, args, context]},
+          parent,
+          fn results ->
+            {:ok, Map.get(results, parent)}
+          end
+        )
+      end
+    end
+  end
+
+  # Function syntax: loader fn parents, args, ctx -> ... end
   defmacro loader(func) do
     quote do
       resolve fn parent, args, %{context: context} ->

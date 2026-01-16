@@ -201,3 +201,9 @@ end
 ```
 
 Note: If using multiple modules, each will define its own `:__green_fairy_queries__` object. You may need to rename them or manually import fields.
+
+## Next Steps
+
+- [Authorization](authorization.html) - Protect mutations
+- [CQL](cql.html) - Add filtering to queries
+- [Relay](relay.html) - Relay-compliant mutations

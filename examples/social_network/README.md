@@ -21,6 +21,8 @@ This example demonstrates:
 
 ## Setup
 
+### Backend
+
 ```bash
 # Install dependencies
 mix deps.get
@@ -28,6 +30,42 @@ mix deps.get
 # Create and migrate database
 mix ecto.create
 mix ecto.migrate
+
+# Start the server
+mix run --no-halt
+
+# The GraphQL endpoint will be available at http://localhost:4000/api/graphql
+# GraphiQL playground at http://localhost:4000/graphiql
+```
+
+### Frontend (React + Relay)
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Generate Relay artifacts
+npm run relay
+
+# Start development server
+npm run dev
+
+# The frontend will be available at http://localhost:3000
+```
+
+### Running Tests
+
+```bash
+# Run backend tests
+mix test
+
+# Tests cover:
+# - GraphQL queries (users, posts, viewer)
+# - GraphQL mutations (createUser, createPost, etc.)
+# - Schema introspection
+# - Relationship queries
 ```
 
 ## Project Structure
@@ -43,6 +81,7 @@ lib/
       comment.ex        # Comment Ecto schema
       like.ex           # Like Ecto schema
     repo.ex             # Ecto repo
+    router.ex           # Plug router with GraphQL endpoints
     application.ex      # OTP application
   social_network_web/
     graphql/
@@ -59,6 +98,21 @@ lib/
         comment.ex
         like.ex
         friendship.ex
+test/
+  support/
+    data_case.ex        # Database test helpers
+    graphql_case.ex     # GraphQL test helpers
+  social_network_web/
+    graphql/
+      queries_test.exs  # Query tests
+      mutations_test.exs # Mutation tests
+      schema_test.exs   # Schema introspection tests
+frontend/
+  src/
+    components/         # React components
+    relay/              # Relay environment
+    __generated__/      # Relay compiler output
+  schema.graphql        # GraphQL schema for Relay
 ```
 
 ## GraphQL API

@@ -196,4 +196,234 @@ defmodule GreenFairy.TypeExtendedTest do
       assert CommonInterface in definition.interfaces
     end
   end
+
+  describe "Type with function-based authorization (2-arity)" do
+    defmodule AuthStruct do
+      defstruct [:id, :name, :secret]
+    end
+
+    defmodule AuthType do
+      use GreenFairy.Type
+
+      type "AuthType", struct: AuthStruct do
+        authorize fn object, ctx ->
+          cond do
+            ctx[:admin] == true -> :all
+            ctx[:user_id] == object.id -> :all
+            true -> [:id, :name]
+          end
+        end
+
+        field :id, non_null(:id)
+        field :name, :string
+        field :secret, :string
+      end
+    end
+
+    test "__has_authorization__ returns true" do
+      assert AuthType.__has_authorization__ == true
+    end
+
+    test "__authorize__ returns :all for admin" do
+      object = %AuthStruct{id: "1", name: "Test", secret: "secret"}
+      ctx = %{admin: true}
+      result = AuthType.__authorize__(object, ctx, %{})
+
+      assert result == :all
+    end
+
+    test "__authorize__ returns :all for owner" do
+      object = %AuthStruct{id: "1", name: "Test", secret: "secret"}
+      ctx = %{user_id: "1"}
+      result = AuthType.__authorize__(object, ctx, %{})
+
+      assert result == :all
+    end
+
+    test "__authorize__ returns limited fields for non-owner" do
+      object = %AuthStruct{id: "1", name: "Test", secret: "secret"}
+      ctx = %{user_id: "2"}
+      result = AuthType.__authorize__(object, ctx, %{})
+
+      assert result == [:id, :name]
+    end
+  end
+
+  describe "Type with function-based authorization (3-arity)" do
+    defmodule Auth3Struct do
+      defstruct [:id, :data]
+    end
+
+    defmodule Auth3Type do
+      use GreenFairy.Type
+
+      type "Auth3Type", struct: Auth3Struct do
+        authorize fn _object, ctx, info ->
+          if ctx[:admin] || info[:path] == [:admin_query] do
+            :all
+          else
+            :none
+          end
+        end
+
+        field :id, non_null(:id)
+        field :data, :string
+      end
+    end
+
+    test "__has_authorization__ returns true" do
+      assert Auth3Type.__has_authorization__ == true
+    end
+
+    test "__authorize__ receives info parameter" do
+      object = %Auth3Struct{id: "1", data: "sensitive"}
+      ctx = %{}
+      info = %{path: [:admin_query]}
+      result = Auth3Type.__authorize__(object, ctx, info)
+
+      assert result == :all
+    end
+
+    test "__authorize__ returns :none for non-admin path" do
+      object = %Auth3Struct{id: "1", data: "sensitive"}
+      ctx = %{}
+      info = %{path: [:user_query]}
+      result = Auth3Type.__authorize__(object, ctx, info)
+
+      assert result == :none
+    end
+  end
+
+  describe "Type without authorization" do
+    defmodule NoAuthStruct do
+      defstruct [:id]
+    end
+
+    defmodule NoAuthType do
+      use GreenFairy.Type
+
+      type "NoAuthType", struct: NoAuthStruct do
+        field :id, non_null(:id)
+      end
+    end
+
+    test "__has_authorization__ returns false" do
+      assert NoAuthType.__has_authorization__ == false
+    end
+
+    test "__authorize__ returns :all" do
+      result = NoAuthType.__authorize__(%{}, %{}, %{})
+      assert result == :all
+    end
+  end
+
+  describe "Type with referenced types tracking" do
+    defmodule RefTarget do
+      use GreenFairy.Type
+
+      type "RefTarget" do
+        field :id, non_null(:id)
+      end
+    end
+
+    defmodule TypeWithRefs do
+      use GreenFairy.Type
+
+      type "TypeWithRefs" do
+        field :id, non_null(:id)
+        # Reference to another type
+        field :target, :ref_target
+        # Reference via non_null wrapper
+        field :non_null_target, non_null(:ref_target)
+        # Reference via list_of wrapper
+        field :targets, list_of(:ref_target)
+      end
+    end
+
+    test "tracks referenced types" do
+      refs = TypeWithRefs.__green_fairy_referenced_types__()
+
+      assert is_list(refs)
+      assert :ref_target in refs
+    end
+  end
+
+  describe "Type policy" do
+    defmodule PolicyStruct do
+      defstruct [:id]
+    end
+
+    defmodule PolicyType do
+      use GreenFairy.Type
+
+      type "PolicyType", struct: PolicyStruct do
+        field :id, non_null(:id)
+      end
+    end
+
+    test "__green_fairy_policy__ returns nil when no policy" do
+      assert PolicyType.__green_fairy_policy__() == nil
+    end
+  end
+
+  describe "Type extensions" do
+    defmodule ExtStruct do
+      defstruct [:id]
+    end
+
+    defmodule ExtType do
+      use GreenFairy.Type
+
+      type "ExtType", struct: ExtStruct do
+        field :id, non_null(:id)
+      end
+    end
+
+    test "__green_fairy_extensions__ returns empty list when no extensions" do
+      assert ExtType.__green_fairy_extensions__() == []
+    end
+  end
+
+  describe "Type with field options" do
+    defmodule FieldOptsType do
+      use GreenFairy.Type
+
+      type "FieldOptsType" do
+        field :id, non_null(:id)
+        field :name, :string, description: "The name"
+        field :list_field, list_of(:string)
+        field :nullable_list, list_of(:string)
+      end
+    end
+
+    test "tracks fields with options" do
+      definition = FieldOptsType.__green_fairy_definition__()
+      field_names = Enum.map(definition.fields, & &1.name)
+
+      assert :id in field_names
+      assert :name in field_names
+      assert :list_field in field_names
+    end
+  end
+
+  describe "Type with fields with resolver and opts" do
+    defmodule ResolverOptsType do
+      use GreenFairy.Type
+
+      type "ResolverOptsType" do
+        field :id, non_null(:id)
+
+        field :computed, :string, description: "A computed field" do
+          resolve fn _, _, _ -> {:ok, "computed"} end
+        end
+      end
+    end
+
+    test "tracks field with resolver" do
+      definition = ResolverOptsType.__green_fairy_definition__()
+      computed_field = Enum.find(definition.fields, &(&1.name == :computed))
+
+      assert computed_field.resolver == true
+    end
+  end
 end

@@ -136,4 +136,28 @@ defmodule GreenFairy.Discovery do
     function_exported?(module, :__green_fairy_definition__, 0) and
       (module.__green_fairy_definition__()[:interfaces] || []) != []
   end
+
+  @doc """
+  Discovers all modules that have CQL extension enabled.
+
+  Returns a list of module atoms that export `__cql_config__/0`.
+  """
+  def discover_cql_types(modules) when is_list(modules) do
+    modules
+    |> Enum.filter(&has_cql?/1)
+  end
+
+  @doc """
+  Discovers all CQL-enabled modules under the given namespaces.
+  """
+  def discover_cql_types_in_namespaces(namespaces) when is_list(namespaces) do
+    namespaces
+    |> discover()
+    |> discover_cql_types()
+  end
+
+  # Check if module has CQL extension enabled
+  defp has_cql?(module) do
+    function_exported?(module, :__cql_config__, 0)
+  end
 end
