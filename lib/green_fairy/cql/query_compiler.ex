@@ -135,7 +135,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   defp compile_condition(query, :_not, filter, schema, adapter, opts) when is_map(filter) do
     # Check if the filter contains association fields that need special handling
     assoc_fields = filter |> Map.keys() |> Enum.filter(&association?(schema, &1))
-    regular_fields = Map.keys(filter) -- assoc_fields -- [:_and, :_or, :_not]
+    regular_fields = (Map.keys(filter) -- assoc_fields) -- [:_and, :_or, :_not]
 
     cond do
       # If only association filters, use NOT EXISTS for each
