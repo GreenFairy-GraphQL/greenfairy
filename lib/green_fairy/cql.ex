@@ -407,7 +407,9 @@ defmodule GreenFairy.CQL do
 
         # Call the type's authorize function to get visible fields
         info = %GreenFairy.AuthorizationInfo{}
-        visible = __authorize__(object, context, info)
+        # Use Function.identity/1 to prevent compile-time type narrowing
+        # This allows handling all cases even when authorize always returns :all
+        visible = Function.identity(__authorize__(object, context, info))
 
         case visible do
           :all -> all_filterable
@@ -462,17 +464,15 @@ defmodule GreenFairy.CQL do
 
           field in config.adapter_fields ->
             type = Map.get(config.adapter_field_types, field)
-            get_operators_for_type(config.adapter, type)
+            adapter = config.adapter
+            # Use inline conditional to avoid unused clause warnings
+            # when adapter is always defined at compile time
+            if adapter, do: adapter.operators_for_type(type), else: [:eq, :in]
 
           true ->
             []
         end
       end
-
-      # Helper to get operators from adapter, handling nil adapter case
-      # This avoids compiler warnings about calling functions on nil
-      defp get_operators_for_type(nil, _type), do: [:eq, :in]
-      defp get_operators_for_type(adapter, type), do: adapter.operators_for_type(type)
 
       @doc """
       Generates the filter input AST for this type.

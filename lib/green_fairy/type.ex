@@ -766,9 +766,10 @@ defmodule GreenFairy.Type do
       def __authorize__(object, context, info) do
         auth_fn = unquote(authorize_fn)
 
+        # Use apply/3 to avoid compiler type-checking issues with different arities
         case :erlang.fun_info(auth_fn, :arity) do
-          {:arity, 2} -> auth_fn.(object, context)
-          {:arity, 3} -> auth_fn.(object, context, info)
+          {:arity, 2} -> apply(auth_fn, [object, context])
+          {:arity, 3} -> apply(auth_fn, [object, context, info])
           _ -> :all
         end
       end
