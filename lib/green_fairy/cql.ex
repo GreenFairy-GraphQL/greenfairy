@@ -133,6 +133,7 @@ defmodule GreenFairy.CQL do
     quote do
       import GreenFairy.CQL.Macros
       Module.register_attribute(__MODULE__, :cql_custom_filters, accumulate: true)
+      Module.register_attribute(__MODULE__, :cql_filters, accumulate: true)
       Module.register_attribute(__MODULE__, :cql_adapter_override, accumulate: false)
 
       if unquote(adapter) do
@@ -147,6 +148,7 @@ defmodule GreenFairy.CQL do
     type_name = config.type_name
     type_identifier = config.type_identifier
     custom_filters = Module.get_attribute(env.module, :cql_custom_filters) || []
+    cql_filters = Module.get_attribute(env.module, :cql_filters) || []
     adapter_override = Module.get_attribute(env.module, :cql_adapter_override)
     adapter = Adapter.find_adapter(struct_module, adapter_override)
 
@@ -162,6 +164,9 @@ defmodule GreenFairy.CQL do
     {custom_filter_meta, custom_filter_fields} = get_custom_filter_info(custom_filters)
     filter_function_clauses = generate_filter_clauses(custom_filters)
 
+    # Process new-style filters (with apply function)
+    {cql_filter_meta, cql_filter_field_names} = get_cql_filter_info(cql_filters)
+
     # Build filter fields for input generation
     adapter_filter_fields =
       adapter_fields
@@ -171,7 +176,13 @@ defmodule GreenFairy.CQL do
       custom_filter_fields
       |> Enum.map(fn field -> {field, nil} end)
 
-    all_filter_fields = adapter_filter_fields ++ custom_fields
+    # Add new-style filter fields with their types
+    cql_filter_fields =
+      cql_filters
+      |> Enum.reject(fn f -> f.hidden end)
+      |> Enum.map(fn f -> {f.field, f.type} end)
+
+    all_filter_fields = adapter_filter_fields ++ custom_fields ++ cql_filter_fields
     filter_fields = Enum.uniq_by(all_filter_fields, fn {name, _type} -> name end)
 
     # Get associations from the struct module for nested filtering
@@ -193,6 +204,8 @@ defmodule GreenFairy.CQL do
       merged_field_types,
       custom_filter_meta,
       custom_filter_fields,
+      cql_filter_meta,
+      cql_filter_field_names,
       type_name,
       type_identifier,
       filter_fields,
@@ -293,6 +306,43 @@ defmodule GreenFairy.CQL do
     {meta, fields}
   end
 
+  # Process new-style filters (with apply function)
+  defp get_cql_filter_info(cql_filters) do
+    # Build a list of filter configs that can be turned into AST
+    filter_configs = Enum.map(cql_filters, fn f ->
+      %{
+        field: f.field,
+        type: f.type,
+        apply_fn_ast: f.apply_fn_ast,
+        description: f.description,
+        hidden: f.hidden
+      }
+    end)
+
+    fields = Enum.map(cql_filters, & &1.field)
+    {filter_configs, fields}
+  end
+
+  # Generate AST to build the filters map at runtime
+  defp generate_cql_filters_map(filter_configs) do
+    # Build a map literal with each filter
+    map_entries = Enum.map(filter_configs, fn config ->
+      {config.field,
+       quote do
+         %{
+           field: unquote(config.field),
+           type: unquote(config.type),
+           apply_fn: unquote(config.apply_fn_ast),
+           description: unquote(config.description),
+           hidden: unquote(config.hidden)
+         }
+       end}
+    end)
+
+    # Return AST for map construction
+    {:%{}, [], map_entries}
+  end
+
   defp generate_filter_clauses(custom_filters) do
     Enum.map(custom_filters, fn cf ->
       quote do
@@ -312,6 +362,8 @@ defmodule GreenFairy.CQL do
          adapter_field_types,
          custom_filter_meta,
          custom_filter_fields,
+         cql_filter_meta,
+         cql_filter_field_names,
          type_name,
          type_identifier,
          filter_fields,
@@ -347,8 +399,22 @@ defmodule GreenFairy.CQL do
 
       def __cql_adapter__, do: unquote(adapter)
 
+      @doc """
+      Returns a map of field -> filter config for filters defined with the `filter` macro.
+
+      Each config contains:
+      - `:field` - The filter field name
+      - `:type` - The GraphQL type for operator input
+      - `:apply_fn` - Function `(query, op, value, ctx) -> {:ok, query} | {:error, reason}`
+      - `:description` - Optional description
+      - `:hidden` - Whether to hide from schema
+      """
+      def __cql_filters__ do
+        unquote(generate_cql_filters_map(cql_filter_meta))
+      end
+
       def __cql_filterable_fields__ do
-        Enum.uniq(unquote(adapter_fields) ++ unquote(custom_filter_fields))
+        Enum.uniq(unquote(adapter_fields) ++ unquote(custom_filter_fields) ++ unquote(cql_filter_field_names))
       end
 
       def __cql_association_fields__ do
@@ -545,6 +611,58 @@ defmodule GreenFairy.CQL do
           field: unquote(field),
           operators: unquote(operators),
           filter_fn_ast: unquote(filter_fn_ast)
+        }
+      end
+    end
+
+    @doc """
+    Defines a custom filter that is not a schema field.
+
+    The filter type determines which operators are available in the GraphQL schema.
+    The apply function handles all filter logic.
+
+    ## Options
+
+    - `:apply` - Required. Function `(query, op, value, ctx) -> {:ok, query} | {:error, reason}`
+    - `:description` - Optional description for GraphQL docs
+    - `:hidden` - If true, excludes from schema introspection
+
+    ## Examples
+
+        # Boolean filter with custom constraint
+        filter :worker_over18, :boolean,
+          apply: fn query, op, value, _ctx ->
+            case {op, value} do
+              {:eq, true} ->
+                {:ok, where(query, [w], w.birthdate <= fragment("CURRENT_DATE - '18 years'::interval"))}
+              {:eq, false} ->
+                {:ok, where(query, [w], w.birthdate > fragment("CURRENT_DATE - '18 years'::interval"))}
+            end
+          end
+
+        # Enum filter using GreenFairy enum module
+        filter :any_engagement_state, MyApp.Enums.EngagementState,
+          apply: &apply_engagement_state_filter/4
+
+        # Filter with join
+        filter :is_restricted, :boolean,
+          apply: &apply_is_restricted_filter/4,
+          description: "Whether this worker has active restrictions"
+
+    """
+    defmacro filter(field, type, opts) do
+      apply_fn = Keyword.fetch!(opts, :apply)
+      description = Keyword.get(opts, :description)
+      hidden = Keyword.get(opts, :hidden, false)
+
+      quote do
+        # Store the function AST, not the evaluated function
+        @cql_filters %{
+          field: unquote(field),
+          type: unquote(type),
+          apply_fn_ast: unquote(Macro.escape(apply_fn)),
+          description: unquote(description),
+          hidden: unquote(hidden)
         }
       end
     end
