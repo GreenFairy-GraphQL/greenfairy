@@ -465,9 +465,9 @@ defmodule GreenFairy.CQL do
           field in config.adapter_fields ->
             type = Map.get(config.adapter_field_types, field)
             adapter = config.adapter
-            # Use inline conditional to avoid unused clause warnings
-            # when adapter is always defined at compile time
-            if adapter, do: adapter.operators_for_type(type), else: [:eq, :in]
+            # Use apply/3 to prevent compiler from type-checking module call
+            # when adapter is nil at compile time
+            if adapter, do: apply(adapter, :operators_for_type, [type]), else: [:eq, :in]
 
           true ->
             []
