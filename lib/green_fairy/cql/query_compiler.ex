@@ -67,12 +67,24 @@ defmodule GreenFairy.CQL.QueryCompiler do
       iex> QueryCompiler.compile(query, filter, MyApp.User, adapter: PostgresAdapter)
       {:ok, #Ecto.Query<...>}
   """
+  @spec compile(Ecto.Query.t(), filter_input() | nil, module(), keyword()) :: compile_result()
   def compile(query, filter, schema, opts \\ [])
   def compile(query, nil, _schema, _opts), do: {:ok, query}
   def compile(query, filter, _schema, _opts) when filter == %{}, do: {:ok, query}
 
   def compile(query, filter, schema, opts) do
     adapter = Keyword.fetch!(opts, :adapter)
+    type_module = Keyword.get(opts, :type_module)
+
+    # Get custom filters if type_module is provided
+    cql_filters =
+      if type_module && function_exported?(type_module, :__cql_filters__, 0) do
+        type_module.__cql_filters__()
+      else
+        %{}
+      end
+
+    opts = Keyword.put(opts, :cql_filters, cql_filters)
 
     with :ok <- Exists.validate_exists_usage(filter, opts) do
       compiled = compile_filter(query, filter, schema, adapter, opts)
@@ -83,6 +95,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   @doc """
   Compiles a CQL filter input, raising on validation errors.
   """
+  @spec compile!(Ecto.Query.t(), filter_input() | nil, module(), keyword()) :: Ecto.Query.t()
   def compile!(query, filter, schema, opts \\ []) do
     case compile(query, filter, schema, opts) do
       {:ok, result} -> result
@@ -179,10 +192,20 @@ defmodule GreenFairy.CQL.QueryCompiler do
 
   # Field conditions
   defp compile_condition(query, field, operators, schema, adapter, opts) when is_map(operators) do
-    if association?(schema, field) do
-      compile_association_filter(query, field, operators, schema, adapter, opts)
-    else
-      compile_field_operators(query, field, operators, schema, adapter, opts)
+    cql_filters = Keyword.get(opts, :cql_filters, %{})
+
+    cond do
+      # Check for custom filter (defined with `filter` macro)
+      Map.has_key?(cql_filters, field) ->
+        compile_custom_filter(query, field, operators, cql_filters[field], opts)
+
+      # Check for association
+      association?(schema, field) ->
+        compile_association_filter(query, field, operators, schema, adapter, opts)
+
+      # Regular field
+      true ->
+        compile_field_operators(query, field, operators, schema, adapter, opts)
     end
   end
 
@@ -272,6 +295,45 @@ defmodule GreenFairy.CQL.QueryCompiler do
       queryable: related,
       field: field
     }
+  end
+
+  # ============================================================================
+  # Custom Filters (defined with `filter` macro)
+  # ============================================================================
+
+  defp compile_custom_filter(query, _field, operators, filter_config, opts) when is_map(operators) do
+    apply_fn = filter_config.apply_fn
+    ctx = build_filter_context(opts)
+
+    Enum.reduce(operators, query, fn {op, value}, acc ->
+      # Normalize operator (remove leading underscore if present)
+      normalized_op = normalize_operator(op)
+
+      # Call the apply function
+      case apply_fn.(acc, normalized_op, value, ctx) do
+        {:ok, new_query} -> new_query
+        {:error, _reason} -> acc
+        # Support returning query directly for simpler filters
+        %Ecto.Query{} = new_query -> new_query
+      end
+    end)
+  end
+
+  defp build_filter_context(opts) do
+    %{
+      args: Keyword.get(opts, :args, %{}),
+      context: Keyword.get(opts, :context, %{}),
+      parent_alias: Keyword.get(opts, :parent_alias)
+    }
+  end
+
+  defp normalize_operator(op) when is_atom(op) do
+    op
+    |> Atom.to_string()
+    |> String.trim_leading("_")
+    |> String.to_existing_atom()
+  rescue
+    ArgumentError -> op
   end
 
   # ============================================================================

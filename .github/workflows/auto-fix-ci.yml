@@ -1,0 +1,111 @@
+name: Auto-fix CI Failures
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+  auto-fix:
+    name: Claude Auto-fix CI Failures
+    runs-on: ubuntu-latest
+    # Only run on PRs where CI failed
+    if: |
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'failure'
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pullRequests } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${context.payload.workflow_run.head_branch}`
+            });
+
+            if (pullRequests.length === 0) {
+              core.setFailed('No open PR found for this branch');
+              return;
+            }
+
+            const pr = pullRequests[0];
+            core.setOutput('number', pr.number);
+            core.setOutput('head_ref', context.payload.workflow_run.head_branch);
+            core.setOutput('head_sha', context.payload.workflow_run.head_sha);
+
+            // Get the failed jobs
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id
+            });
+
+            const failedJobs = jobs.jobs.filter(job => job.conclusion === 'failure');
+            const failedJobNames = failedJobs.map(job => job.name).join(', ');
+
+            core.setOutput('failed_jobs', failedJobNames);
+            core.setOutput('run_id', context.payload.workflow_run.id);
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Run Claude Code to fix CI failures
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+
+          prompt: |
+            The CI workflow has failed on this PR. Here are the details:
+
+            - PR #${{ steps.pr.outputs.number }}
+            - Branch: ${{ steps.pr.outputs.head_ref }}
+            - Failed jobs: ${{ steps.pr.outputs.failed_jobs }}
+            - Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ steps.pr.outputs.run_id }}
+
+            Please:
+            1. Analyze the CI failure logs using `gh run view ${{ steps.pr.outputs.run_id }} --log-failed`
+            2. Fix all the issues that caused the CI to fail
+            3. Run the relevant commands locally to verify the fixes (e.g., mix format, mix test, mix compile)
+            4. Commit the fixes with a clear commit message
+            5. Push the changes to the branch
+
+            Use git commands to commit and push. The commit message should be:
+            "fix: Auto-fix CI failures
+
+            Fixes: ${{ steps.pr.outputs.failed_jobs }}
+
+            Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+
+          # Allow Claude to use git and gh commands
+          claude_args: '--allowed-tools Bash(*)'
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.pr.outputs.number }},
+              body: '🤖 I attempted to automatically fix the CI failures. Please check the latest commit and the CI results.\n\nFailed jobs that were addressed: ${{ steps.pr.outputs.failed_jobs }}'
+            });
