@@ -67,6 +67,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
       iex> QueryCompiler.compile(query, filter, MyApp.User, adapter: PostgresAdapter)
       {:ok, #Ecto.Query<...>}
   """
+  @spec compile(Ecto.Query.t(), filter_input() | nil, module(), keyword()) :: compile_result()
   def compile(query, filter, schema, opts \\ [])
   def compile(query, nil, _schema, _opts), do: {:ok, query}
   def compile(query, filter, _schema, _opts) when filter == %{}, do: {:ok, query}
@@ -94,6 +95,7 @@ defmodule GreenFairy.CQL.QueryCompiler do
   @doc """
   Compiles a CQL filter input, raising on validation errors.
   """
+  @spec compile!(Ecto.Query.t(), filter_input() | nil, module(), keyword()) :: Ecto.Query.t()
   def compile!(query, filter, schema, opts \\ []) do
     case compile(query, filter, schema, opts) do
       {:ok, result} -> result
