@@ -34,7 +34,7 @@ jobs:
 
       - name: Verify version matches tag
         run: |
-          VERSION=$(grep '@version' mix.exs | cut -d '"' -f 2)
+          VERSION=$(grep '@version "' mix.exs | cut -d '"' -f 2)
           # Extract version from tag (format: green_fairy-v0.2.0)
           TAG=${GITHUB_REF#refs/tags/green_fairy-v}
           if [ "$VERSION" != "$TAG" ]; then
