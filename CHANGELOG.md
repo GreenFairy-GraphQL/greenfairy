@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/GreenFairy-GraphQL/greenfairy/compare/green_fairy-v0.2.0...green_fairy-v0.2.1) (2026-01-18)
+
+
+### Bug Fixes
+
+* Update publish workflow to match release-please tag format ([0896e96](https://github.com/GreenFairy-GraphQL/greenfairy/commit/0896e96f6b8ca7b18177e3cd97ca13606918e26b))
+
 ## [0.2.0](https://github.com/GreenFairy-GraphQL/greenfairy/compare/green_fairy-v0.1.0...green_fairy-v0.2.0) (2026-01-18)
 
 
