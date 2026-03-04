@@ -22,7 +22,7 @@ defmodule GreenFairy.Introspection.VisibilityTest do
       field :name, :string
 
       field :ssn, :string do
-        visible fn ctx -> ctx[:admin] end
+        visible(fn ctx -> ctx[:admin] end)
       end
     end
   end
@@ -32,7 +32,7 @@ defmodule GreenFairy.Introspection.VisibilityTest do
     use GreenFairy.Type
 
     type "VisInternalMetrics", struct: TestSecret, cql: false do
-      visible fn ctx -> ctx[:admin] end
+      visible(fn ctx -> ctx[:admin] end)
 
       field :cpu, :float
       field :memory, :float
@@ -44,12 +44,12 @@ defmodule GreenFairy.Introspection.VisibilityTest do
     use GreenFairy.Type
 
     type "VisCombined", struct: TestSecret, cql: false do
-      visible fn ctx -> ctx[:admin] || ctx[:internal] end
+      visible(fn ctx -> ctx[:admin] || ctx[:internal] end)
 
       field :cpu, :float
 
       field :memory, :float do
-        visible fn ctx -> ctx[:admin] end
+        visible(fn ctx -> ctx[:admin] end)
       end
     end
   end
