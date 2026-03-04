@@ -67,8 +67,17 @@ defmodule GreenFairy.Field.Connection do
     connection_name = :"#{field_name}_connection"
     edge_name = :"#{field_name}_edge"
 
-    # Parse the block to extract edge definition, extra fields, custom resolver, and aggregates
-    {edge_block, connection_fields, custom_resolver, aggregates} = parse_connection_block(block)
+    # Parse the block to extract edge definition, extra fields, and custom resolver
+    {edge_block, connection_fields, custom_resolver, _} = parse_connection_block(block)
+
+    # Auto-infer aggregates from the node type's fields
+    {aggregates, field_types} =
+      if type_module_expanded do
+        definition = type_module_expanded.__green_fairy_definition__()
+        GreenFairy.Field.ConnectionAggregate.infer_aggregates(definition.fields)
+      else
+        {nil, %{}}
+      end
 
     # Store the connection definition for deferred generation in __before_compile__
     connection_def = %{
@@ -80,7 +89,8 @@ defmodule GreenFairy.Field.Connection do
       edge_block: edge_block,
       connection_fields: connection_fields,
       custom_resolver: custom_resolver,
-      aggregates: aggregates
+      aggregates: aggregates,
+      field_types: field_types
     }
 
     quote do
@@ -228,7 +238,8 @@ defmodule GreenFairy.Field.Connection do
           ConnectionAggregate.generate_aggregate_types(
             conn.connection_name,
             type_name,
-            conn.aggregates
+            conn.aggregates,
+            conn[:field_types] || %{}
           )
         else
           []
@@ -380,21 +391,16 @@ defmodule GreenFairy.Field.Connection do
     end
   end
 
-  # Parse the connection block to extract edge definition, extra connection fields, custom resolver, and aggregates
+  # Parse the connection block to extract edge definition, extra connection fields, and custom resolver
+  # Aggregates are now auto-inferred from the node type's fields
   @doc false
   def parse_connection_block(nil), do: {nil, nil, nil, nil}
 
   def parse_connection_block({:__block__, _, statements}) do
-    # Split statements into edge, resolver, aggregate, and other
+    # Split statements into edge, resolver, and other
     {edge_blocks, rest} =
       Enum.split_with(statements, fn
         {:edge, _, _} -> true
-        _ -> false
-      end)
-
-    {aggregate_blocks, rest} =
-      Enum.split_with(rest, fn
-        {:aggregate, _, _} -> true
         _ -> false
       end)
 
@@ -419,23 +425,13 @@ defmodule GreenFairy.Field.Connection do
         _ -> nil
       end
 
-    aggregates =
-      case aggregate_blocks do
-        [{:aggregate, _, [[do: block]]} | _] ->
-          alias GreenFairy.Field.ConnectionAggregate
-          ConnectionAggregate.parse_aggregate_block(block)
-
-        _ ->
-          nil
-      end
-
     connection_fields =
       case connection_field_statements do
         [] -> nil
         stmts -> {:__block__, [], stmts}
       end
 
-    {edge_block, connection_fields, custom_resolver, aggregates}
+    {edge_block, connection_fields, custom_resolver, nil}
   end
 
   def parse_connection_block({:edge, _, [[do: block]]}) do

@@ -225,12 +225,11 @@ defmodule GreenFairy.Field.ConnectionTest do
         field :name, :string
 
         # Connection inside a type block - this should work with deferred generation
+        # total_count, exists, and nodes are now auto-generated
         connection :friends, FriendType do
           edge do
             field :friendship_date, :string
           end
-
-          field :total_count, :integer
         end
       end
     end
@@ -546,18 +545,13 @@ defmodule GreenFairy.Field.ConnectionTest do
       assert {:loader, [], _} = resolver
     end
 
-    test "parses block with aggregate" do
-      aggregate_block = {:__block__, [], [{:sum, [], [[:amount]]}]}
-
-      statements = [
-        {:aggregate, [], [[do: aggregate_block]]}
-      ]
-
-      block = {:__block__, [], statements}
+    test "aggregates are always nil from parse_connection_block (auto-inferred)" do
+      # Aggregates are no longer parsed from the block - they are auto-inferred
+      block = {:__block__, [], [{:field, [], [:total_count, :integer]}]}
 
       {_edge_block, _connection_fields, _resolver, aggregates} = Connection.parse_connection_block(block)
 
-      assert aggregates.sum == [:amount]
+      assert aggregates == nil
     end
 
     test "parses edge with opts inside block" do
@@ -600,7 +594,8 @@ defmodule GreenFairy.Field.ConnectionTest do
         edge_name: :engagements_edge,
         edge_block: nil,
         connection_fields: nil,
-        aggregates: %{sum: [:amount], avg: [], min: [], max: []}
+        aggregates: %{sum: [:amount], avg: [], min: [], max: []},
+        field_types: %{amount: :float}
       }
 
       types = Connection.generate_connection_types([conn])

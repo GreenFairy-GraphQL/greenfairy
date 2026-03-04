@@ -1,130 +1,65 @@
 defmodule GreenFairy.Field.ConnectionAggregate do
   @moduledoc """
-  Support for aggregate operations in connections (sum, avg, min, max).
+  Support for auto-inferred aggregate operations in connections (sum, avg, min, max).
+
+  Aggregates are automatically inferred from the node type's fields:
+  - Numeric fields (integer, float, decimal) get sum/avg/min/max
+  - Temporal fields (date, datetime, etc.) get min/max only
+  - Fields with resolvers or `aggregate: false` are excluded
+  - sum/avg always return `:float`, min/max return the original field type
 
   ## Usage
 
-      connection :engagements, node_type: :engagement do
-        arg :where, :cql_filter_engagement_input
-
-        aggregate do
-          sum [:hours_worked, :total_pay]
-          avg [:hours_worked, :hourly_rate]
-          min [:start_time]
-          max [:end_time]
-        end
-
-        resolve dataloader(Repo, :engagements)
+      type "Engagement", struct: Engagement do
+        field :hours_worked, :float
+        field :total_pay, :decimal
+        field :start_time, :datetime
+        field :name, :string              # excluded (not numeric/temporal)
+        field :secret, :float, aggregate: false  # excluded (opted out)
       end
+
+      # Connection auto-infers aggregates from the node type above
+      connection :engagements, EngagementType
 
   ## Generated Types
 
-  For each connection with aggregates, generates:
+  For each connection with aggregatable fields, generates:
   - `{Type}Aggregate` - Main aggregate type with sum/avg/min/max fields
-  - `{Type}SumAggregates` - Sum aggregate fields
-  - `{Type}AvgAggregates` - Average aggregate fields
-  - `{Type}MinAggregates` - Minimum aggregate fields
-  - `{Type}MaxAggregates` - Maximum aggregate fields
-
-  ## Example Schema
-
-      type EngagementAggregate {
-        sum: EngagementSumAggregates
-        avg: EngagementAvgAggregates
-        min: EngagementMinAggregates
-        max: EngagementMaxAggregates
-      }
-
-      type EngagementSumAggregates {
-        hoursWorked: Float
-        totalPay: Float
-      }
+  - `{Type}SumAggregates` - Sum aggregate fields (`:float`)
+  - `{Type}AvgAggregates` - Average aggregate fields (`:float`)
+  - `{Type}MinAggregates` - Minimum aggregate fields (original types)
+  - `{Type}MaxAggregates` - Maximum aggregate fields (original types)
   """
+
+  @numeric_types [:integer, :float, :decimal]
+  @temporal_types [:date, :datetime, :naive_datetime, :utc_datetime, :time]
 
   @doc """
-  Macro to define aggregations in a connection.
+  Infers aggregate configuration from a list of field info maps.
 
-  ## Examples
+  Returns `{aggregates, field_types}` where:
+  - `aggregates` is `%{sum: [...], avg: [...], min: [...], max: [...]}` or `nil` if no aggregatable fields
+  - `field_types` is a map of `%{field_name => field_type}` for all eligible fields
 
-      aggregate do
-        sum [:hours_worked, :total_pay]
-        avg [:hours_worked, :hourly_rate]
-        min [:start_time]
-        max [:end_time]
-      end
+  Numeric fields (integer, float, decimal) get sum/avg/min/max.
+  Temporal fields (date, datetime, etc.) get min/max only.
+  Fields with `resolver: true` or `aggregate: false` are excluded.
   """
-  defmacro aggregate(do: block) do
-    # Parse the block to extract sum/avg/min/max field lists
-    aggregates = parse_aggregate_block(block)
+  def infer_aggregates(fields) do
+    eligible =
+      fields
+      |> Enum.reject(& &1.resolver)
+      |> Enum.reject(&(Keyword.get(&1.opts, :aggregate) == false))
 
-    quote do
-      # Store aggregate configuration
-      @green_fairy_current_connection_aggregates unquote(Macro.escape(aggregates))
-    end
+    sum_avg = eligible |> Enum.filter(&(&1.type in @numeric_types)) |> Enum.map(& &1.name)
+    min_max = eligible |> Enum.filter(&(&1.type in (@numeric_types ++ @temporal_types))) |> Enum.map(& &1.name)
+    field_types = Map.new(eligible, fn f -> {f.name, f.type} end)
+
+    aggregates = %{sum: sum_avg, avg: sum_avg, min: min_max, max: min_max}
+    has_any = sum_avg != [] || min_max != []
+
+    {if(has_any, do: aggregates), field_types}
   end
-
-  @doc """
-  Defines sum aggregate fields.
-  """
-  defmacro sum(fields) when is_list(fields) do
-    quote do
-      {:sum, unquote(fields)}
-    end
-  end
-
-  @doc """
-  Defines average aggregate fields.
-  """
-  defmacro avg(fields) when is_list(fields) do
-    quote do
-      {:avg, unquote(fields)}
-    end
-  end
-
-  @doc """
-  Defines minimum aggregate fields.
-  """
-  defmacro min(fields) when is_list(fields) do
-    quote do
-      {:min, unquote(fields)}
-    end
-  end
-
-  @doc """
-  Defines maximum aggregate fields.
-  """
-  defmacro max(fields) when is_list(fields) do
-    quote do
-      {:max, unquote(fields)}
-    end
-  end
-
-  @doc false
-  def parse_aggregate_block({:__block__, _, statements}) do
-    Enum.reduce(statements, %{sum: [], avg: [], min: [], max: []}, fn
-      {:sum, _, [fields]}, acc when is_list(fields) ->
-        %{acc | sum: fields}
-
-      {:avg, _, [fields]}, acc when is_list(fields) ->
-        %{acc | avg: fields}
-
-      {:min, _, [fields]}, acc when is_list(fields) ->
-        %{acc | min: fields}
-
-      {:max, _, [fields]}, acc when is_list(fields) ->
-        %{acc | max: fields}
-
-      _other, acc ->
-        acc
-    end)
-  end
-
-  def parse_aggregate_block({op, _, [fields]}) when op in [:sum, :avg, :min, :max] and is_list(fields) do
-    %{sum: [], avg: [], min: [], max: []}
-    |> Map.put(op, fields)
-  end
-
-  def parse_aggregate_block(_), do: nil
 
   @doc """
   Generates aggregate type definitions for a connection.
@@ -132,7 +67,7 @@ defmodule GreenFairy.Field.ConnectionAggregate do
   Called from __before_compile__ to generate aggregate types.
   """
   # credo:disable-for-lines:6 Credo.Check.Warning.UnsafeToAtom
-  def generate_aggregate_types(_connection_name, type_name, aggregates) do
+  def generate_aggregate_types(_connection_name, type_name, aggregates, field_types \\ %{}) do
     return_type = :"#{type_name}_aggregate"
     sum_type = :"#{type_name}_sum_aggregates"
     avg_type = :"#{type_name}_avg_aggregates"
@@ -160,7 +95,7 @@ defmodule GreenFairy.Field.ConnectionAggregate do
     # Generate min aggregates type if min fields present
     types =
       if Enum.any?(aggregates.min) do
-        [generate_min_type(min_type, aggregates.min) | types]
+        [generate_min_type(min_type, aggregates.min, field_types) | types]
       else
         types
       end
@@ -168,7 +103,7 @@ defmodule GreenFairy.Field.ConnectionAggregate do
     # Generate max aggregates type if max fields present
     types =
       if Enum.any?(aggregates.max) do
-        [generate_max_type(max_type, aggregates.max) | types]
+        [generate_max_type(max_type, aggregates.max, field_types) | types]
       else
         types
       end
@@ -205,20 +140,20 @@ defmodule GreenFairy.Field.ConnectionAggregate do
     end
   end
 
-  defp generate_min_type(type_name, fields) do
+  defp generate_min_type(type_name, fields, field_types) do
     quote do
       Absinthe.Schema.Notation.object unquote(type_name) do
         @desc "Minimum value aggregates"
-        unquote_splicing(generate_aggregate_fields(fields, :string))
+        unquote_splicing(generate_typed_aggregate_fields(fields, field_types))
       end
     end
   end
 
-  defp generate_max_type(type_name, fields) do
+  defp generate_max_type(type_name, fields, field_types) do
     quote do
       Absinthe.Schema.Notation.object unquote(type_name) do
         @desc "Maximum value aggregates"
-        unquote_splicing(generate_aggregate_fields(fields, :string))
+        unquote_splicing(generate_typed_aggregate_fields(fields, field_types))
       end
     end
   end
@@ -233,6 +168,22 @@ defmodule GreenFairy.Field.ConnectionAggregate do
         field(unquote(graphql_name), unquote(default_type))
       end
     end)
+  end
+
+  defp generate_typed_aggregate_fields(fields, field_types) when map_size(field_types) > 0 do
+    Enum.map(fields, fn field ->
+      # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
+      graphql_name = field |> Atom.to_string() |> Absinthe.Utils.camelize(lower: true) |> String.to_atom()
+      field_type = Map.get(field_types, field, :string)
+
+      quote do
+        field(unquote(graphql_name), unquote(field_type))
+      end
+    end)
+  end
+
+  defp generate_typed_aggregate_fields(fields, _field_types) do
+    generate_aggregate_fields(fields, :string)
   end
 
   defp generate_main_aggregate_type(type_name, aggregates, sum_type, avg_type, min_type, max_type) do

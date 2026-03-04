@@ -338,10 +338,16 @@ defmodule GreenFairy.Type do
         module -> {module, []}
       end
 
-    type_identifier =
+    type_module_expanded =
       if type_module do
-        type_module = Macro.expand(type_module, env)
-        type_module.__green_fairy_identifier__()
+        Macro.expand(type_module, env)
+      else
+        nil
+      end
+
+    type_identifier =
+      if type_module_expanded do
+        type_module_expanded.__green_fairy_identifier__()
       else
         opts[:node]
       end
@@ -352,14 +358,26 @@ defmodule GreenFairy.Type do
     {edge_block, connection_fields, _custom_resolver, _aggregates} =
       GreenFairy.Field.Connection.parse_connection_block(block)
 
+    # Infer aggregates from the node type's fields
+    {aggregates, field_types} =
+      if type_module_expanded do
+        definition = type_module_expanded.__green_fairy_definition__()
+        GreenFairy.Field.ConnectionAggregate.infer_aggregates(definition.fields)
+      else
+        {nil, %{}}
+      end
+
     [
       %{
         field_name: field_name,
         type_identifier: type_identifier,
+        type_module: type_module_expanded,
         connection_name: connection_name,
         edge_name: edge_name,
         edge_block: edge_block,
-        connection_fields: connection_fields
+        connection_fields: connection_fields,
+        aggregates: aggregates,
+        field_types: field_types
       }
     ]
   end
@@ -385,16 +403,124 @@ defmodule GreenFairy.Type do
           end
         end
 
+      # Generate aggregate field and types if aggregates are present
+      {aggregate_field, aggregate_types} =
+        if conn[:aggregates] do
+          type_name = conn.field_name |> Atom.to_string() |> String.trim_trailing("s")
+          # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
+          aggregate_type = :"#{type_name}_aggregate"
+
+          agg_types =
+            GreenFairy.Field.ConnectionAggregate.generate_aggregate_types(
+              conn.connection_name,
+              type_name,
+              conn.aggregates,
+              conn[:field_types] || %{}
+            )
+
+          agg_field =
+            quote do
+              @desc "Aggregate values across all items (ignoring pagination)"
+              field :aggregate, unquote(aggregate_type) do
+                resolve(fn parent, _, _ ->
+                  sum_result =
+                    if parent[:_sum_fns] do
+                      Map.new(parent._sum_fns, fn {field, fn_value} ->
+                        {field, if(is_function(fn_value, 0), do: fn_value.(), else: fn_value)}
+                      end)
+                    else
+                      parent[:sum]
+                    end
+
+                  avg_result =
+                    if parent[:_avg_fns] do
+                      Map.new(parent._avg_fns, fn {field, fn_value} ->
+                        {field, if(is_function(fn_value, 0), do: fn_value.(), else: fn_value)}
+                      end)
+                    else
+                      parent[:avg]
+                    end
+
+                  min_result =
+                    if parent[:_min_fns] do
+                      Map.new(parent._min_fns, fn {field, fn_value} ->
+                        {field, if(is_function(fn_value, 0), do: fn_value.(), else: fn_value)}
+                      end)
+                    else
+                      parent[:min]
+                    end
+
+                  max_result =
+                    if parent[:_max_fns] do
+                      Map.new(parent._max_fns, fn {field, fn_value} ->
+                        {field, if(is_function(fn_value, 0), do: fn_value.(), else: fn_value)}
+                      end)
+                    else
+                      parent[:max]
+                    end
+
+                  result = %{}
+                  result = if sum_result && map_size(sum_result) > 0, do: Map.put(result, :sum, sum_result), else: result
+                  result = if avg_result && map_size(avg_result) > 0, do: Map.put(result, :avg, avg_result), else: result
+                  result = if min_result && map_size(min_result) > 0, do: Map.put(result, :min, min_result), else: result
+                  result = if max_result && map_size(max_result) > 0, do: Map.put(result, :max, max_result), else: result
+
+                  {:ok, if(map_size(result) > 0, do: result, else: nil)}
+                end)
+              end
+            end
+
+          {agg_field, agg_types}
+        else
+          {nil, []}
+        end
+
       connection_type =
         quote do
           Absinthe.Schema.Notation.object unquote(conn.connection_name) do
             field :edges, list_of(unquote(conn.edge_name))
             field :page_info, non_null(:page_info)
+
+            @desc "Flattened list of nodes (GitHub-style shortcut)"
+            field :nodes, list_of(unquote(conn.type_identifier))
+
+            @desc "Total count of items matching the query (ignoring pagination)"
+            field :total_count, :integer do
+              resolve(fn
+                %{_total_count_fn: count_fn}, _, _ when is_function(count_fn, 0) ->
+                  {:ok, count_fn.()}
+
+                %{total_count: count}, _, _ ->
+                  {:ok, count}
+
+                _, _, _ ->
+                  {:ok, nil}
+              end)
+            end
+
+            @desc "Whether any items match the query"
+            field :exists, :boolean do
+              resolve(fn
+                %{_exists_fn: exists_fn}, _, _ when is_function(exists_fn, 0) ->
+                  {:ok, exists_fn.()}
+
+                %{exists: exists}, _, _ ->
+                  {:ok, exists}
+
+                %{edges: edges}, _, _ ->
+                  {:ok, edges != []}
+
+                _, _, _ ->
+                  {:ok, false}
+              end)
+            end
+
+            unquote(aggregate_field)
             unquote(conn.connection_fields)
           end
         end
 
-      [edge_type, connection_type]
+      [edge_type, connection_type | aggregate_types]
     end)
   end
 
@@ -493,9 +619,22 @@ defmodule GreenFairy.Type do
 
   # Transform connection fields - emit only the field reference
   # The connection types are generated in the type macro before the main object
-  defp transform_statement({:connection, _meta, args}, _env, _struct_module) do
-    {field_name, type_module_or_opts, _block} = parse_connection_args(args)
+  defp transform_statement({:connection, _meta, args}, env, struct_module) do
+    {field_name, type_module_or_opts, block} = parse_connection_args(args)
     connection_name = :"#{field_name}_connection"
+
+    {type_module, _opts} =
+      case type_module_or_opts do
+        opts when is_list(opts) -> {nil, opts}
+        module -> {module, []}
+      end
+
+    type_module_expanded =
+      if type_module do
+        Macro.expand(type_module, env)
+      else
+        nil
+      end
 
     # Extract the node type reference for graph discovery
     type_ref =
@@ -503,6 +642,25 @@ defmodule GreenFairy.Type do
         opts when is_list(opts) -> opts[:node]
         module -> module
       end
+
+    # Parse connection block for custom resolver
+    {_edge_block, _connection_fields, custom_resolver, _aggregates} =
+      GreenFairy.Field.Connection.parse_connection_block(block)
+
+    # Infer aggregates from the node type
+    {aggregates, _field_types} =
+      if type_module_expanded do
+        definition = type_module_expanded.__green_fairy_definition__()
+        GreenFairy.Field.ConnectionAggregate.infer_aggregates(definition.fields)
+      else
+        {nil, %{}}
+      end
+
+    # Build CQL args
+    cql_args = build_connection_cql_args(type_module_expanded)
+
+    # Build resolver - use the struct_module from the type macro (available at compile time)
+    resolver = build_connection_resolver_ast(field_name, type_module_expanded, struct_module, custom_resolver, aggregates)
 
     quote do
       # Track the node type reference
@@ -515,6 +673,9 @@ defmodule GreenFairy.Type do
         arg :after, :string
         arg :last, :integer
         arg :before, :string
+
+        unquote(cql_args)
+        unquote(resolver)
       end
     end
   end
@@ -569,6 +730,9 @@ defmodule GreenFairy.Type do
       resolver: has_resolver || false
     }
 
+    # Strip :aggregate from field opts (Absinthe doesn't know about this option)
+    transformed_args = strip_green_fairy_opts(transformed_args)
+
     # Transform the field args to convert module references to type identifiers
     transformed_args = transform_field_type_refs(transformed_args, env)
 
@@ -598,6 +762,111 @@ defmodule GreenFairy.Type do
 
   # Pass through everything else unchanged - let Absinthe handle it
   defp transform_statement(other, _env, _struct_module), do: other
+
+  # Strip GreenFairy-specific options (:aggregate) from field args before passing to Absinthe
+  @green_fairy_field_opts [:aggregate]
+
+  defp strip_green_fairy_opts([name, type, opts | rest]) when is_list(opts) do
+    cleaned = Keyword.drop(opts, @green_fairy_field_opts)
+    [name, type, cleaned | rest]
+  end
+
+  defp strip_green_fairy_opts(args), do: args
+
+  # Build CQL args (where and orderBy) for connection fields in type blocks
+  # Resolves types at compile time to avoid AST variable issues with Absinthe's macro processing
+  defp build_connection_cql_args(type_module) when not is_nil(type_module) do
+    filter_arg =
+      if Code.ensure_loaded?(type_module) and
+           function_exported?(type_module, :__cql_filter_input_identifier__, 0) do
+        filter_type = type_module.__cql_filter_input_identifier__()
+        quote do: arg(:where, unquote(filter_type))
+      end
+
+    order_arg =
+      if Code.ensure_loaded?(type_module) and
+           function_exported?(type_module, :__cql_order_input_identifier__, 0) do
+        order_type = type_module.__cql_order_input_identifier__()
+        quote do: arg(:order_by, list_of(unquote(order_type)))
+      end
+
+    quote do
+      unquote(filter_arg)
+      unquote(order_arg)
+    end
+  end
+
+  defp build_connection_cql_args(_type_module), do: nil
+
+  # Build resolver AST for connection fields in type blocks
+  # Uses struct_module directly (available at compile time from the type macro)
+  # instead of __green_fairy_struct__() which isn't defined until @before_compile
+  defp build_connection_resolver_ast(_field_name, _type_module, _struct_module, custom_resolver, _aggregates)
+       when not is_nil(custom_resolver) do
+    custom_resolver
+  end
+
+  defp build_connection_resolver_ast(field_name, type_module, struct_module, _custom_resolver, aggregates)
+       when not is_nil(type_module) and not is_nil(struct_module) do
+    aggregates_escaped = Macro.escape(aggregates)
+
+    if Code.ensure_loaded?(struct_module) and function_exported?(struct_module, :__schema__, 2) do
+      case struct_module.__schema__(:association, field_name) do
+        nil ->
+          nil
+
+        %Ecto.Association.HasThrough{} ->
+          nil
+
+        assoc ->
+          related_key =
+            case assoc do
+              %{related_key: key} -> key
+              %{related: related} -> hd(related.__schema__(:primary_key))
+            end
+
+          owner_key = assoc.owner_key
+
+          quote do
+            resolve(fn parent, args, resolution ->
+              repo = resolution.context[:repo]
+
+              if repo do
+                opts = [
+                  repo: repo,
+                  owner_key: unquote(owner_key),
+                  related_key: unquote(related_key),
+                  queryable: unquote(type_module).__green_fairy_struct__(),
+                  type_module: unquote(type_module)
+                ]
+
+                opts =
+                  if unquote(aggregates_escaped) do
+                    Keyword.put(opts, :aggregates, unquote(aggregates_escaped))
+                  else
+                    opts
+                  end
+
+                GreenFairy.Field.ConnectionResolver.resolve_association_connection(
+                  parent,
+                  args,
+                  resolution,
+                  opts
+                )
+              else
+                {:error, "No repo in context. Add repo: YourRepo to context."}
+              end
+            end)
+          end
+      end
+    else
+      nil
+    end
+  end
+
+  defp build_connection_resolver_ast(_field_name, _type_module, _struct_module, _custom_resolver, _aggregates) do
+    nil
+  end
 
   # Extract visible callback from a field's do block
   defp extract_field_visible(nil), do: {nil, nil}

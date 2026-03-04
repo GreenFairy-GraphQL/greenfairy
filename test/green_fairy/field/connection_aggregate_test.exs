@@ -3,111 +3,116 @@ defmodule GreenFairy.Field.ConnectionAggregateTest do
 
   alias GreenFairy.Field.ConnectionAggregate
 
-  describe "parse_aggregate_block/1" do
-    test "parses block with all aggregate types" do
-      block =
-        {:__block__, [],
-         [
-           {:sum, [], [[:hours_worked, :total_pay]]},
-           {:avg, [], [[:hours_worked, :hourly_rate]]},
-           {:min, [], [[:start_time]]},
-           {:max, [], [[:end_time]]}
-         ]}
+  describe "infer_aggregates/1" do
+    test "infers all operations for numeric fields" do
+      fields = [
+        %{name: :amount, type: :integer, opts: [], resolver: false},
+        %{name: :price, type: :float, opts: [], resolver: false},
+        %{name: :total, type: :decimal, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.sum == [:hours_worked, :total_pay]
-      assert result.avg == [:hours_worked, :hourly_rate]
-      assert result.min == [:start_time]
-      assert result.max == [:end_time]
+      assert aggregates.sum == [:amount, :price, :total]
+      assert aggregates.avg == [:amount, :price, :total]
+      assert aggregates.min == [:amount, :price, :total]
+      assert aggregates.max == [:amount, :price, :total]
+      assert field_types == %{amount: :integer, price: :float, total: :decimal}
     end
 
-    test "parses block with only sum" do
-      block =
-        {:__block__, [],
-         [
-           {:sum, [], [[:hours_worked, :total_pay]]}
-         ]}
+    test "infers only min/max for temporal fields" do
+      fields = [
+        %{name: :created_at, type: :datetime, opts: [], resolver: false},
+        %{name: :start_date, type: :date, opts: [], resolver: false},
+        %{name: :start_time, type: :time, opts: [], resolver: false},
+        %{name: :naive_ts, type: :naive_datetime, opts: [], resolver: false},
+        %{name: :utc_ts, type: :utc_datetime, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.sum == [:hours_worked, :total_pay]
-      assert result.avg == []
-      assert result.min == []
-      assert result.max == []
+      assert aggregates.sum == []
+      assert aggregates.avg == []
+      assert aggregates.min == [:created_at, :start_date, :start_time, :naive_ts, :utc_ts]
+      assert aggregates.max == [:created_at, :start_date, :start_time, :naive_ts, :utc_ts]
+      assert field_types[:created_at] == :datetime
+      assert field_types[:start_date] == :date
     end
 
-    test "parses block with only avg" do
-      block =
-        {:__block__, [],
-         [
-           {:avg, [], [[:rate, :score]]}
-         ]}
+    test "excludes string, boolean, id, and custom types" do
+      fields = [
+        %{name: :name, type: :string, opts: [], resolver: false},
+        %{name: :active, type: :boolean, opts: [], resolver: false},
+        %{name: :id, type: :id, opts: [], resolver: false},
+        %{name: :status, type: :custom_enum, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, _field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.sum == []
-      assert result.avg == [:rate, :score]
-      assert result.min == []
-      assert result.max == []
+      assert aggregates == nil
     end
 
-    test "parses single sum statement (not in block)" do
-      block = {:sum, [], [[:hours_worked]]}
+    test "excludes fields with resolver: true" do
+      fields = [
+        %{name: :amount, type: :float, opts: [], resolver: true},
+        %{name: :price, type: :float, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.sum == [:hours_worked]
-      assert result.avg == []
-      assert result.min == []
-      assert result.max == []
+      assert aggregates.sum == [:price]
+      assert aggregates.avg == [:price]
+      refute Map.has_key?(field_types, :amount)
     end
 
-    test "parses single avg statement (not in block)" do
-      block = {:avg, [], [[:rating]]}
+    test "excludes fields with aggregate: false" do
+      fields = [
+        %{name: :amount, type: :float, opts: [aggregate: false], resolver: false},
+        %{name: :price, type: :float, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.avg == [:rating]
+      assert aggregates.sum == [:price]
+      assert aggregates.avg == [:price]
+      refute Map.has_key?(field_types, :amount)
     end
 
-    test "parses single min statement (not in block)" do
-      block = {:min, [], [[:created_at]]}
+    test "returns nil aggregates when no aggregatable fields" do
+      fields = [
+        %{name: :name, type: :string, opts: [], resolver: false},
+        %{name: :active, type: :boolean, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, _field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result.min == [:created_at]
+      assert aggregates == nil
     end
 
-    test "parses single max statement (not in block)" do
-      block = {:max, [], [[:updated_at]]}
+    test "returns nil aggregates for empty fields" do
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates([])
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
-
-      assert result.max == [:updated_at]
+      assert aggregates == nil
+      assert field_types == %{}
     end
 
-    test "returns nil for invalid block" do
-      block = {:invalid, [], []}
+    test "handles mixed numeric and temporal fields" do
+      fields = [
+        %{name: :hours_worked, type: :float, opts: [], resolver: false},
+        %{name: :total_pay, type: :decimal, opts: [], resolver: false},
+        %{name: :start_time, type: :datetime, opts: [], resolver: false},
+        %{name: :name, type: :string, opts: [], resolver: false}
+      ]
 
-      result = ConnectionAggregate.parse_aggregate_block(block)
+      {aggregates, field_types} = ConnectionAggregate.infer_aggregates(fields)
 
-      assert result == nil
-    end
-
-    test "ignores unknown statements in block" do
-      block =
-        {:__block__, [],
-         [
-           {:sum, [], [[:amount]]},
-           {:unknown_op, [], [[:field]]},
-           {:avg, [], [[:rate]]}
-         ]}
-
-      result = ConnectionAggregate.parse_aggregate_block(block)
-
-      assert result.sum == [:amount]
-      assert result.avg == [:rate]
+      assert aggregates.sum == [:hours_worked, :total_pay]
+      assert aggregates.avg == [:hours_worked, :total_pay]
+      assert aggregates.min == [:hours_worked, :total_pay, :start_time]
+      assert aggregates.max == [:hours_worked, :total_pay, :start_time]
+      assert field_types[:hours_worked] == :float
+      assert field_types[:start_time] == :datetime
+      assert field_types[:name] == :string
     end
   end
 
@@ -229,22 +234,35 @@ defmodule GreenFairy.Field.ConnectionAggregateTest do
     end
   end
 
-  describe "macros" do
-    test "sum/1 returns tuple" do
-      # Test the behavior expected from the macro
-      assert {:sum, [:field1, :field2]} = {:sum, [:field1, :field2]}
+  describe "generate_aggregate_types/4 with field_types" do
+    test "uses original types for min/max fields" do
+      aggregates = %{
+        sum: [:amount],
+        avg: [:amount],
+        min: [:amount, :created_at],
+        max: [:amount, :created_at]
+      }
+
+      field_types = %{amount: :float, created_at: :datetime}
+
+      result = ConnectionAggregate.generate_aggregate_types(:orders, :order, aggregates, field_types)
+
+      # Should generate 5 types: main + sum + avg + min + max
+      assert length(result) == 5
     end
 
-    test "avg/1 returns tuple" do
-      assert {:avg, [:field1]} = {:avg, [:field1]}
-    end
+    test "falls back to :string for min/max when no field_types" do
+      aggregates = %{
+        sum: [],
+        avg: [],
+        min: [:created_at],
+        max: [:updated_at]
+      }
 
-    test "min/1 returns tuple" do
-      assert {:min, [:field1]} = {:min, [:field1]}
-    end
+      result = ConnectionAggregate.generate_aggregate_types(:orders, :order, aggregates)
 
-    test "max/1 returns tuple" do
-      assert {:max, [:field1]} = {:max, [:field1]}
+      # Should generate 3 types: main + min + max
+      assert length(result) == 3
     end
   end
 
