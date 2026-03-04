@@ -52,13 +52,25 @@ defmodule GreenFairy.Input do
       use Absinthe.Schema.Notation
       import Absinthe.Schema.Notation, except: [input_object: 2]
 
-      import GreenFairy.Input, only: [input: 2, input: 3, authorize: 1]
+      import GreenFairy.Input, only: [input: 2, input: 3, authorize: 1, visible: 1]
 
       Module.register_attribute(__MODULE__, :green_fairy_input, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_authorize_fn, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_referenced_types, accumulate: true)
+      Module.register_attribute(__MODULE__, :green_fairy_visible_fn, accumulate: false)
+      Module.register_attribute(__MODULE__, :green_fairy_field_visible, accumulate: true)
 
       @before_compile GreenFairy.Input
+    end
+  end
+
+  @doc """
+  Controls whether this input type or its fields appear in introspection results.
+  See `GreenFairy.Type.visible/1` for details.
+  """
+  defmacro visible(func) do
+    quote do
+      @green_fairy_visible_fn unquote(Macro.escape(func))
     end
   end
 
@@ -121,6 +133,7 @@ defmodule GreenFairy.Input do
 
       @desc unquote(opts[:description])
       Absinthe.Schema.Notation.input_object unquote(identifier) do
+        meta :green_fairy_type_module, __MODULE__
         unquote(transformed_block)
       end
     end
@@ -134,6 +147,12 @@ defmodule GreenFairy.Input do
 
   defp transform_input_block(statement, env) do
     transform_input_statement(statement, env)
+  end
+
+  defp transform_input_statement({:visible, _meta, [func]}, _env) do
+    quote do
+      @green_fairy_visible_fn unquote(Macro.escape(func))
+    end
   end
 
   defp transform_input_statement({:authorize, _meta, [func]}, _env) do
@@ -192,9 +211,12 @@ defmodule GreenFairy.Input do
   defmacro __before_compile__(env) do
     input_def = Module.get_attribute(env.module, :green_fairy_input)
     authorize_fn = Module.get_attribute(env.module, :green_fairy_authorize_fn)
+    visible_fn = Module.get_attribute(env.module, :green_fairy_visible_fn)
+    field_visible_defs = Module.get_attribute(env.module, :green_fairy_field_visible) || []
 
     # Generate authorization function
     authorize_impl = generate_authorize_impl(authorize_fn)
+    visibility_impl = generate_visibility_impl(visible_fn, field_visible_defs)
 
     quote do
       # Register this input in the TypeRegistry for graph-based discovery
@@ -229,6 +251,9 @@ defmodule GreenFairy.Input do
       def __green_fairy_referenced_types__ do
         unquote(Macro.escape(Module.get_attribute(env.module, :green_fairy_referenced_types) || []))
       end
+
+      # Visibility implementation
+      unquote(visibility_impl)
     end
   end
 
@@ -291,6 +316,57 @@ defmodule GreenFairy.Input do
 
       @doc false
       def __has_authorization__, do: true
+    end
+  end
+
+  defp generate_visibility_impl(nil, []) do
+    quote do
+      @doc false
+      def __type_visible__(_context), do: true
+
+      @doc false
+      def __field_visible__(_field_name, _context), do: true
+    end
+  end
+
+  defp generate_visibility_impl(visible_fn, field_visible_defs) do
+    type_visible =
+      if visible_fn do
+        quote do
+          @doc false
+          def __type_visible__(context) do
+            !!(unquote(visible_fn)).(context)
+          end
+        end
+      else
+        quote do
+          @doc false
+          def __type_visible__(_context), do: true
+        end
+      end
+
+    field_clauses =
+      field_visible_defs
+      |> Enum.reverse()
+      |> Enum.map(fn {field_name, func} ->
+        quote do
+          def __field_visible__(unquote(field_name), context) do
+            !!(unquote(func)).(context)
+          end
+        end
+      end)
+
+    fallback =
+      quote do
+        def __field_visible__(_field_name, _context), do: true
+      end
+
+    quote do
+      unquote(type_visible)
+
+      @doc false
+      unquote_splicing(field_clauses)
+      unquote(fallback)
     end
   end
 end

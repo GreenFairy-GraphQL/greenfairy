@@ -37,7 +37,7 @@ defmodule GreenFairy.Type do
       use Absinthe.Schema.Notation
       import Absinthe.Schema.Notation, except: [object: 2]
 
-      import GreenFairy.Type, only: [type: 2, type: 3, authorize: 1, expose: 1, expose: 2]
+      import GreenFairy.Type, only: [type: 2, type: 3, authorize: 1, expose: 1, expose: 2, visible: 1]
       import GreenFairy.Field.Connection, only: [connection: 2, connection: 3]
       import GreenFairy.Field.Loader, only: [loader: 1, loader: 4]
       # assoc is handled via AST transformation, not as a regular macro
@@ -51,6 +51,8 @@ defmodule GreenFairy.Type do
       Module.register_attribute(__MODULE__, :green_fairy_extensions, accumulate: true)
       Module.register_attribute(__MODULE__, :green_fairy_referenced_types, accumulate: true)
       Module.register_attribute(__MODULE__, :green_fairy_expose, accumulate: true)
+      Module.register_attribute(__MODULE__, :green_fairy_visible_fn, accumulate: false)
+      Module.register_attribute(__MODULE__, :green_fairy_field_visible, accumulate: true)
       Module.register_attribute(__MODULE__, :cql_custom_filters, accumulate: true)
 
       # Import CQL macros for custom filters
@@ -191,6 +193,39 @@ defmodule GreenFairy.Type do
   end
 
   @doc """
+  Controls whether this type or field appears in introspection results.
+
+  Unlike `authorize`, which controls data access at resolution time (and requires
+  an object), `visible` controls schema visibility based only on context.
+
+  ## Type-level visibility
+
+      type "InternalMetrics", struct: MyApp.InternalMetrics do
+        visible fn ctx -> ctx[:current_user][:admin] end
+
+        field :cpu, :float
+        field :memory, :float
+      end
+
+  ## Field-level visibility
+
+      type "User", struct: MyApp.User do
+        field :id, non_null(:id)
+        field :name, :string
+
+        field :ssn, :string do
+          visible fn ctx -> ctx[:current_user][:admin] end
+        end
+      end
+
+  """
+  defmacro visible(func) do
+    quote do
+      @green_fairy_visible_fn unquote(Macro.escape(func))
+    end
+  end
+
+  @doc """
   Defines a GraphQL object type.
 
   ## Examples
@@ -256,6 +291,7 @@ defmodule GreenFairy.Type do
 
       @desc unquote(opts[:description])
       Absinthe.Schema.Notation.object unquote(identifier) do
+        meta :green_fairy_type_module, __MODULE__
         unquote(transformed_block)
       end
     end
@@ -384,6 +420,13 @@ defmodule GreenFairy.Type do
     end
   end
 
+  # Transform visible declaration - type-level visibility
+  defp transform_statement({:visible, _meta, [func]}, _env, _struct_module) do
+    quote do
+      @green_fairy_visible_fn unquote(Macro.escape(func))
+    end
+  end
+
   # Transform authorize declaration - old style with policy module
   defp transform_statement({:authorize, _meta, [[with: policy_module]]}, _env, _struct_module) do
     quote do
@@ -505,6 +548,17 @@ defmodule GreenFairy.Type do
       validate_field_resolution(block, field_name, env)
     end
 
+    # Extract visible callback from the field block (if present)
+    {visible_fn, cleaned_block} = extract_field_visible(block)
+
+    # Rebuild args with the cleaned block (visible removed)
+    transformed_args =
+      if cleaned_block != block do
+        rebuild_field_args_with_block(args, cleaned_block)
+      else
+        args
+      end
+
     # Extract type reference from the original args for graph discovery
     type_ref = extract_type_reference(args)
 
@@ -516,10 +570,22 @@ defmodule GreenFairy.Type do
     }
 
     # Transform the field args to convert module references to type identifiers
-    transformed_args = transform_field_type_refs(args, env)
+    transformed_args = transform_field_type_refs(transformed_args, env)
+
+    visible_attr =
+      if visible_fn do
+        quote do
+          @green_fairy_field_visible {unquote(field_name), unquote(Macro.escape(visible_fn))}
+        end
+      else
+        nil
+      end
 
     quote do
       @green_fairy_fields unquote(Macro.escape(field_info))
+
+      # Track field visibility
+      unquote(visible_attr)
 
       # Track type reference for graph-based discovery
       if unquote(type_ref) do
@@ -532,6 +598,60 @@ defmodule GreenFairy.Type do
 
   # Pass through everything else unchanged - let Absinthe handle it
   defp transform_statement(other, _env, _struct_module), do: other
+
+  # Extract visible callback from a field's do block
+  defp extract_field_visible(nil), do: {nil, nil}
+
+  defp extract_field_visible({:visible, _, [func]}), do: {func, nil}
+
+  defp extract_field_visible({:__block__, meta, statements}) do
+    {visible_stmts, rest} = Enum.split_with(statements, &match?({:visible, _, _}, &1))
+
+    case visible_stmts do
+      [{:visible, _, [func]} | _] ->
+        cleaned =
+          case rest do
+            [single] -> single
+            many -> {:__block__, meta, many}
+          end
+
+        {func, cleaned}
+
+      [] ->
+        {nil, {:__block__, meta, statements}}
+    end
+  end
+
+  defp extract_field_visible(other), do: {nil, other}
+
+  # Rebuild field args with a cleaned block (visible removed)
+  defp rebuild_field_args_with_block([name, [do: _block]], cleaned_block) do
+    if cleaned_block, do: [name, [do: cleaned_block]], else: [name]
+  end
+
+  defp rebuild_field_args_with_block([name, type, [do: _block]], cleaned_block) do
+    if cleaned_block, do: [name, type, [do: cleaned_block]], else: [name, type]
+  end
+
+  defp rebuild_field_args_with_block([name, type, opts, [do: _block]], cleaned_block) do
+    if cleaned_block, do: [name, type, opts, [do: cleaned_block]], else: [name, type, opts]
+  end
+
+  defp rebuild_field_args_with_block([name, type, opts], cleaned_block) when is_list(opts) do
+    case Keyword.pop(opts, :do) do
+      {nil, _} ->
+        [name, type, opts]
+
+      {_old_block, rest_opts} ->
+        if cleaned_block do
+          [name, type, Keyword.put(rest_opts, :do, cleaned_block)]
+        else
+          if rest_opts == [], do: [name, type], else: [name, type, rest_opts]
+        end
+    end
+  end
+
+  defp rebuild_field_args_with_block(args, _cleaned_block), do: args
 
   # Transform field args to convert module references to type identifiers
   defp transform_field_type_refs([name, type | rest], env) do
@@ -737,6 +857,58 @@ defmodule GreenFairy.Type do
 
   defp extension_module?(_), do: false
 
+  # Generate __type_visible__/1 and __field_visible__/2 implementations
+  defp generate_visibility_impl(nil, []) do
+    quote do
+      @doc false
+      def __type_visible__(_context), do: true
+
+      @doc false
+      def __field_visible__(_field_name, _context), do: true
+    end
+  end
+
+  defp generate_visibility_impl(visible_fn, field_visible_defs) do
+    type_visible =
+      if visible_fn do
+        quote do
+          @doc false
+          def __type_visible__(context) do
+            !!(unquote(visible_fn)).(context)
+          end
+        end
+      else
+        quote do
+          @doc false
+          def __type_visible__(_context), do: true
+        end
+      end
+
+    field_clauses =
+      field_visible_defs
+      |> Enum.reverse()
+      |> Enum.map(fn {field_name, func} ->
+        quote do
+          def __field_visible__(unquote(field_name), context) do
+            !!(unquote(func)).(context)
+          end
+        end
+      end)
+
+    fallback =
+      quote do
+        def __field_visible__(_field_name, _context), do: true
+      end
+
+    quote do
+      unquote(type_visible)
+
+      @doc false
+      unquote_splicing(field_clauses)
+      unquote(fallback)
+    end
+  end
+
   # Generate the __authorize__/3 implementation based on authorize_fn or policy
   defp generate_authorize_impl(nil, nil) do
     # No authorization - return :all
@@ -858,6 +1030,13 @@ defmodule GreenFairy.Type do
         nil
       end
 
+    # Read visibility attributes
+    visible_fn = Module.get_attribute(env.module, :green_fairy_visible_fn)
+    field_visible_defs = Module.get_attribute(env.module, :green_fairy_field_visible) || []
+
+    # Generate visibility callbacks
+    visibility_impl = generate_visibility_impl(visible_fn, field_visible_defs)
+
     # Generate authorization function based on stored authorize_fn or policy
     authorize_impl = generate_authorize_impl(authorize_fn, policy_def)
 
@@ -879,6 +1058,9 @@ defmodule GreenFairy.Type do
 
       # Authorization implementation
       unquote(authorize_impl)
+
+      # Visibility implementation
+      unquote(visibility_impl)
 
       @doc false
       def __green_fairy_definition__ do

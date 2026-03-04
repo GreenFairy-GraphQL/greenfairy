@@ -69,12 +69,23 @@ defmodule GreenFairy.Enum do
       use Absinthe.Schema.Notation
       import Absinthe.Schema.Notation, except: [enum: 2, enum: 3]
 
-      import GreenFairy.Enum, only: [enum: 2, enum: 3, enum_mapping: 1]
+      import GreenFairy.Enum, only: [enum: 2, enum: 3, enum_mapping: 1, visible: 1]
 
       Module.register_attribute(__MODULE__, :green_fairy_enum, accumulate: false)
       Module.register_attribute(__MODULE__, :green_fairy_enum_mapping, accumulate: false)
+      Module.register_attribute(__MODULE__, :green_fairy_visible_fn, accumulate: false)
 
       @before_compile GreenFairy.Enum
+    end
+  end
+
+  @doc """
+  Controls whether this enum type appears in introspection results.
+  See `GreenFairy.Type.visible/1` for details.
+  """
+  defmacro visible(func) do
+    quote do
+      @green_fairy_visible_fn unquote(Macro.escape(func))
     end
   end
 
@@ -103,6 +114,7 @@ defmodule GreenFairy.Enum do
 
       @desc unquote(opts[:description])
       Absinthe.Schema.Notation.enum unquote(identifier) do
+        meta :green_fairy_type_module, __MODULE__
         unquote(block)
       end
     end
@@ -138,6 +150,9 @@ defmodule GreenFairy.Enum do
   defmacro __before_compile__(env) do
     enum_def = Module.get_attribute(env.module, :green_fairy_enum)
     mapping_ast = Module.get_attribute(env.module, :green_fairy_enum_mapping)
+    visible_fn = Module.get_attribute(env.module, :green_fairy_visible_fn)
+
+    visibility_impl = generate_visibility_impl(visible_fn)
 
     # Generate serialize/parse functions if mapping is defined
     transform_functions =
@@ -192,6 +207,9 @@ defmodule GreenFairy.Enum do
       end
 
       unquote(transform_functions)
+
+      # Visibility implementation
+      unquote(visibility_impl)
     end
   end
 
@@ -230,6 +248,22 @@ defmodule GreenFairy.Enum do
       """
       unquote_splicing(parse_clauses)
       def parse(value), do: value
+    end
+  end
+
+  defp generate_visibility_impl(nil) do
+    quote do
+      @doc false
+      def __type_visible__(_context), do: true
+    end
+  end
+
+  defp generate_visibility_impl(visible_fn) do
+    quote do
+      @doc false
+      def __type_visible__(context) do
+        !!(unquote(visible_fn)).(context)
+      end
     end
   end
 end

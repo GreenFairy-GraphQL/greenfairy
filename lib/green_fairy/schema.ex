@@ -144,6 +144,37 @@ defmodule GreenFairy.Schema do
       unquote(mutation_block)
       unquote(subscription_block)
 
+      # Add visibility filtering phase to the Absinthe pipeline.
+      # Absinthe skips middleware/3 for built-in introspection types,
+      # so we insert a custom phase after Document.Result instead.
+      #
+      # pipeline/2 is used by Absinthe.Plug for HTTP requests.
+      # run/2 is a helper for direct execution (tests, scripts).
+      def pipeline(config, opts) do
+        config
+        |> Absinthe.Pipeline.for_document(opts)
+        |> GreenFairy.Introspection.add_filter_phase()
+      end
+
+      defoverridable pipeline: 2
+
+      @doc """
+      Execute a GraphQL query against this schema with visibility filtering.
+
+      Use this instead of `Absinthe.run/3` to ensure introspection visibility
+      filtering is applied. Same API as `Absinthe.run/3` but without the
+      schema argument.
+
+          {:ok, result} = MySchema.run("{ __type(name: \\"User\\") { fields { name } } }",
+            context: %{current_user: admin}
+          )
+      """
+      def run(document, opts \\ []) do
+        Absinthe.run(document, __MODULE__,
+          Keyword.put(opts, :pipeline_modifier, &GreenFairy.Introspection.pipeline_modifier/2)
+        )
+      end
+
       import GreenFairy.Schema, only: [root_query: 1, root_mutation: 1, root_subscription: 1]
     end
   end
@@ -316,7 +347,7 @@ defmodule GreenFairy.Schema do
               unquote(Macro.escape(discovered))
             end
           end
-        ]
+        ],
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)
