@@ -170,7 +170,9 @@ defmodule GreenFairy.Schema do
           )
       """
       def run(document, opts \\ []) do
-        Absinthe.run(document, __MODULE__,
+        Absinthe.run(
+          document,
+          __MODULE__,
           Keyword.put(opts, :pipeline_modifier, &GreenFairy.Introspection.pipeline_modifier/2)
         )
       end
@@ -347,7 +349,7 @@ defmodule GreenFairy.Schema do
               unquote(Macro.escape(discovered))
             end
           end
-        ],
+        ]
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)

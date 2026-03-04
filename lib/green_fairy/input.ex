@@ -335,7 +335,7 @@ defmodule GreenFairy.Input do
         quote do
           @doc false
           def __type_visible__(context) do
-            !!(unquote(visible_fn)).(context)
+            !!unquote(visible_fn).(context)
           end
         end
       else
@@ -351,7 +351,7 @@ defmodule GreenFairy.Input do
       |> Enum.map(fn {field_name, func} ->
         quote do
           def __field_visible__(unquote(field_name), context) do
-            !!(unquote(func)).(context)
+            !!unquote(func).(context)
           end
         end
       end)

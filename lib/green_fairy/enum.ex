@@ -262,7 +262,7 @@ defmodule GreenFairy.Enum do
     quote do
       @doc false
       def __type_visible__(context) do
-        !!(unquote(visible_fn)).(context)
+        !!unquote(visible_fn).(context)
       end
     end
   end
