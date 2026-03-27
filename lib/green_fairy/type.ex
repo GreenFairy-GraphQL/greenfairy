@@ -460,10 +460,17 @@ defmodule GreenFairy.Type do
                     end
 
                   result = %{}
-                  result = if sum_result && map_size(sum_result) > 0, do: Map.put(result, :sum, sum_result), else: result
-                  result = if avg_result && map_size(avg_result) > 0, do: Map.put(result, :avg, avg_result), else: result
-                  result = if min_result && map_size(min_result) > 0, do: Map.put(result, :min, min_result), else: result
-                  result = if max_result && map_size(max_result) > 0, do: Map.put(result, :max, max_result), else: result
+                  result =
+                    if sum_result && map_size(sum_result) > 0, do: Map.put(result, :sum, sum_result), else: result
+
+                  result =
+                    if avg_result && map_size(avg_result) > 0, do: Map.put(result, :avg, avg_result), else: result
+
+                  result =
+                    if min_result && map_size(min_result) > 0, do: Map.put(result, :min, min_result), else: result
+
+                  result =
+                    if max_result && map_size(max_result) > 0, do: Map.put(result, :max, max_result), else: result
 
                   {:ok, if(map_size(result) > 0, do: result, else: nil)}
                 end)
@@ -660,7 +667,8 @@ defmodule GreenFairy.Type do
     cql_args = build_connection_cql_args(type_module_expanded)
 
     # Build resolver - use the struct_module from the type macro (available at compile time)
-    resolver = build_connection_resolver_ast(field_name, type_module_expanded, struct_module, custom_resolver, aggregates)
+    resolver =
+      build_connection_resolver_ast(field_name, type_module_expanded, struct_module, custom_resolver, aggregates)
 
     quote do
       # Track the node type reference
@@ -1143,7 +1151,7 @@ defmodule GreenFairy.Type do
         quote do
           @doc false
           def __type_visible__(context) do
-            !!(unquote(visible_fn)).(context)
+            !!unquote(visible_fn).(context)
           end
         end
       else
@@ -1159,7 +1167,7 @@ defmodule GreenFairy.Type do
       |> Enum.map(fn {field_name, func} ->
         quote do
           def __field_visible__(unquote(field_name), context) do
-            !!(unquote(func)).(context)
+            !!unquote(func).(context)
           end
         end
       end)

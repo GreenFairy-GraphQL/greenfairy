@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/GreenFairy-GraphQL/greenfairy/compare/green_fairy-v0.2.1...green_fairy-v0.3.0) (2026-03-04)
+
+
+### Features
+
+* Add field and type visibility for introspection filtering ([6846024](https://github.com/GreenFairy-GraphQL/greenfairy/commit/6846024dccf10a276ec0f686ac47f86fb349aeae))
+* Auto-infer connection aggregates from node type fields ([762ce80](https://github.com/GreenFairy-GraphQL/greenfairy/commit/762ce80cd73da2e41f510677ec2c01b1f9805f22))
+
 ## [0.2.1](https://github.com/GreenFairy-GraphQL/greenfairy/compare/green_fairy-v0.2.0...green_fairy-v0.2.1) (2026-01-18)
 
 
